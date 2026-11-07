@@ -1,0 +1,48 @@
+name: Compilar o Game Mode
+
+on:
+  workflow_dispatch:
+    inputs:
+      sem_movement_helper:
+        description: "Compilar SEM o Movement Helper (menos chance de alarme do antivírus)"
+        type: boolean
+        default: false
+  push:
+    branches: [main]
+
+jobs:
+  compilar:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Instalar o Nuitka
+        run: python -m pip install --upgrade pip nuitka ordered-set zstandard
+
+      - name: Compilar o programa
+        shell: pwsh
+        run: |
+          $mov = "--include-module=gm_mods"
+          if ("${{ inputs.sem_movement_helper }}" -eq "true") { $mov = "--nofollow-import-to=gm_mods" }
+          python -m nuitka --standalone --windows-console-mode=disable --enable-plugin=tk-inter `
+            --windows-icon-from-ico=app.ico --output-dir=build --output-filename=GameMode.exe `
+            --company-name=GameMode --product-name=GameMode --file-description=GameMode `
+            --file-version=2.3.0.0 --product-version=2.3.0.0 `
+            --include-module=gm_extras $mov --assume-yes-for-downloads gamemode_app.py
+          if (-not (Test-Path "build/gamemode_app.dist/GameMode.exe")) { throw "O Nuitka não gerou o GameMode.exe" }
+
+      - name: Instalar o NSIS
+        run: choco install nsis -y --no-progress
+
+      - name: Montar o instalador
+        shell: pwsh
+        run: '& "C:\Program Files (x86)\NSIS\makensis.exe" GameMode.nsi'
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Instalador-GameMode
+          path: Instalar_GameMode_*.exe
