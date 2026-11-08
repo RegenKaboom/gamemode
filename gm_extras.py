@@ -8,6 +8,7 @@ gm_extras.py - extras do Game Mode (sem nada que dependa do Windows para importa
 
 import json
 import os
+import re
 import socket
 import subprocess
 import time
@@ -477,3 +478,110 @@ def gamebar_restore(before):
                     winreg.SetValueEx(key, name, 0, winreg.REG_DWORD, int(old))
         except OSError:
             pass
+
+
+# ------------------------------------------------------------- atualização automática
+import hashlib
+import urllib.request
+
+MAX_MANIFEST = 200_000
+MAX_INSTALLER = 300 * 1024 * 1024
+
+
+def parse_version(text):
+    """'2.3', 'v2.3' ou '2.3 (texto)' -> (2, 3). Sem número -> (0,)."""
+    m = re.match(r"\s*v?(\d+(?:\.\d+)*)", str(text or ""))
+    return tuple(int(x) for x in m.group(1).split(".")) if m else (0,)
+
+
+def _norm(parts):
+    parts = list(parts)
+    while len(parts) > 1 and parts[-1] == 0:
+        parts.pop()
+    return tuple(parts)
+
+
+def is_newer(remote, local):
+    return _norm(parse_version(remote)) > _norm(parse_version(local))
+
+
+def installer_url(repo, version):
+    return f"https://github.com/{repo}/releases/download/v{version}/Instalar_GameMode_{version}.exe"
+
+
+def validate_manifest(data, repo):
+    """Aceita só o formato esperado, com o endereço exato do instalador no GitHub do projeto."""
+    if not isinstance(data, dict):
+        return None
+    version = str(data.get("version", "")).strip()
+    url = str(data.get("url", "")).strip()
+    sha = str(data.get("sha256", "")).strip().lower()
+    if not re.fullmatch(r"\d+(\.\d+){0,3}", version) or not re.fullmatch(r"[0-9a-f]{64}", sha):
+        return None
+    if url != installer_url(repo, version):
+        return None
+    return {"version": version, "url": url, "sha256": sha, "notes": str(data.get("notes", ""))[:800]}
+
+
+def fetch_manifest(url, repo, opener=None, timeout=10):
+    """Baixa e confere o latest.json. None se der qualquer problema."""
+    opener = opener or urllib.request.urlopen
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "GameMode-updater"})
+        with opener(req, timeout=timeout) as r:
+            if not str(r.geturl()).startswith("https://"):
+                return None
+            raw = r.read(MAX_MANIFEST + 1)
+        if len(raw) > MAX_MANIFEST:
+            return None
+        return validate_manifest(json.loads(raw.decode("utf-8-sig")), repo)
+    except (OSError, ValueError):
+        return None
+
+
+def download_installer(manifest, dest, opener=None, progress=None, timeout=30):
+    """Baixa o instalador e confere o SHA-256. Retorna dest ou levanta ValueError/OSError."""
+    opener = opener or urllib.request.urlopen
+    os.makedirs(os.path.dirname(dest), exist_ok=True)
+    part = dest + ".part"
+    digest, total = hashlib.sha256(), 0
+    req = urllib.request.Request(manifest["url"], headers={"User-Agent": "GameMode-updater"})
+    try:
+        with opener(req, timeout=timeout) as r, open(part, "wb") as f:
+            if not str(r.geturl()).startswith("https://"):
+                raise ValueError("o download saiu do https")
+            size = int(r.headers.get("Content-Length") or 0)
+            while True:
+                chunk = r.read(65536)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > MAX_INSTALLER:
+                    raise ValueError("arquivo grande demais")
+                digest.update(chunk)
+                f.write(chunk)
+                if progress:
+                    progress(total, size)
+        if digest.hexdigest() != manifest["sha256"]:
+            raise ValueError("o arquivo baixado não confere com o publicado (SHA-256)")
+        os.replace(part, dest)
+        return dest
+    except BaseException:
+        try:
+            os.remove(part)
+        except OSError:
+            pass
+        raise
+
+
+def update_action(mode, frozen, version, skip, game_running, manual):
+    """O que fazer com uma versão nova achada: 'none', 'notify', 'prompt', 'install' ou 'wait'."""
+    if manual:
+        return "prompt" if frozen else "notify"
+    if mode == "off" or version == skip:
+        return "none"
+    if mode == "notify" or not frozen:
+        return "notify"
+    if mode == "auto":
+        return "wait" if game_running else "install"
+    return "prompt"
