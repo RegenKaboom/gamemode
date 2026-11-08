@@ -22,17 +22,17 @@ on:
       - 'welcome.bmp'
       - 'requirements.txt'
 
-env:
-  APP_VERSION_FILE: gamemode_app.py
+permissions:
+  contents: write
+  releases: write
 
 jobs:
   build:
     name: Build & Release
     runs-on: windows-latest
-    permissions:
-      contents: write
-      releases: write
-
+    outputs:
+      version: ${{ steps.version.outputs.VERSION }}
+      installer: ${{ steps.installer.outputs.INSTALLER }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -193,7 +193,7 @@ jobs:
       - name: Download installer
         uses: actions/download-artifact@v4
         with:
-          name: GameMode-Installer-${{ needs.build.outputs.VERSION }}
+          name: GameMode-Installer-${{ needs.build.outputs.version }}
           path: .
 
       - name: Download latest.json
