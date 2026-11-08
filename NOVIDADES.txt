@@ -1,0 +1,5 @@
+Versão 2.4
+- Atualização automática: o Game Mode avisa quando sai versão nova e atualiza sozinho.
+- Os ajustes do Windows agora são feitos pelo próprio programa, sem PowerShell escondido.
+- Perfis para Minecraft, Roblox e Friday Night Funkin', com troca automática.
+- Visual de overlay estilo Feather e Badlion.
