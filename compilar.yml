@@ -1,0 +1,224 @@
+name: Build Game Mode
+
+on:
+  workflow_dispatch:
+    inputs:
+      sem_movement_helper:
+        description: 'Build without SOCD cleaner (gm_mods)'
+        type: boolean
+        required: false
+        default: false
+  push:
+    branches: [main]
+    paths:
+      - 'gamemode_app.py'
+      - 'gm_extras.py'
+      - 'gm_mods.py'
+      - 'i18n/**'
+      - 'theme_manager.py'
+      - 'game_detector.py'
+      - 'GameMode.nsi'
+      - 'app.ico'
+      - 'welcome.bmp'
+      - 'requirements.txt'
+
+env:
+  APP_VERSION_FILE: gamemode_app.py
+
+jobs:
+  build:
+    name: Build & Release
+    runs-on: windows-latest
+    permissions:
+      contents: write
+      releases: write
+    outputs:
+      version: ${{ steps.version.outputs.VERSION }}
+      installer: ${{ steps.installer.outputs.INSTALLER }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install nuitka ordered-set zstandard
+          if exist requirements.txt (pip install -r requirements.txt)
+
+      - name: Extract version
+        id: version
+        run: |
+          $content = Get-Content $env:APP_VERSION_FILE -Raw
+          if ($content -match 'APP_VERSION\s*=\s*["\']([^"\']+)["\']') {
+            $version = $matches[1]
+            echo "VERSION=$version" >> $env:GITHUB_OUTPUT
+            echo "Version found: $version"
+          } else {
+            echo "Could not extract version"
+            exit 1
+          }
+
+      - name: Compile with Nuitka
+        run: |
+          $args = @(
+            '--standalone',
+            '--windows-console-mode=disable',
+            '--enable-plugin=tk-inter',
+            '--include-package=i18n',
+            '--include-package=theme_manager',
+            '--include-package=game_detector',
+            '--include-data-dir=i18n=i18n',
+            '--output-dir=build',
+            '--remove-output',
+            '--assume-yes-for-downloads',
+            '--windows-icon-from-ico=app.ico',
+            '--company-name=RegenKaboom',
+            '--product-name=Game Mode',
+            '--file-version=${{ steps.version.outputs.VERSION }}',
+            '--product-version=${{ steps.version.outputs.VERSION }}',
+            '--copyright="Copyright (C) 2024 RegenKaboom"'
+          )
+
+          if ('${{ github.event.inputs.sem_movement_helper }}' -eq 'true') {
+            $args += '--nofollow-import-to=gm_mods'
+            $args += '--nofollow-import-to=MovementHelper'
+          } else {
+            $args += '--include-module=gm_mods'
+          }
+
+          python -m nuitka $args gamemode_app.py
+
+      - name: Verify executable
+        run: |
+          $exe = "build\gamemode_app.dist\GameMode.exe"
+          if (Test-Path $exe) {
+            echo "Executable found: $exe"
+            $size = (Get-Item $exe).Length / 1MB
+            echo "Size: $("{0:N1}" -f $size) MB"
+          } else {
+            echo "Executable not found!"
+            Get-ChildItem build -Recurse
+            exit 1
+          }
+
+      - name: Build installer with NSIS
+        id: installer
+        run: |
+          # Install NSIS
+          choco install nsis --no-progress
+
+          # Add NSIS to PATH
+          $nsisPath = "C:\Program Files (x86)\NSIS"
+          if (Test-Path $nsisPath) {
+            $env:PATH += ";$nsisPath"
+          }
+
+          # Build installer
+          $version = '${{ steps.version.outputs.VERSION }}'
+          $outFile = "Instalar_GameMode_$version.exe"
+
+          makensis /DAPP_VERSION=$version /DOUTFILE=$outFile GameMode.nsi
+
+          if (Test-Path $outFile) {
+            echo "Installer created: $outFile"
+            echo "INSTALLER=$outFile" >> $env:GITHUB_OUTPUT
+          } else {
+            echo "Installer not found!"
+            exit 1
+          }
+
+      - name: Generate SHA256
+        id: hash
+        run: |
+          $installer = '${{ steps.installer.outputs.INSTALLER }}'
+          $hash = (Get-FileHash -Algorithm SHA256 $installer).Hash.ToLower()
+          echo "SHA256=$hash" >> $env:GITHUB_OUTPUT
+          echo "SHA256: $hash"
+
+      - name: Create latest.json
+        run: |
+          $version = '${{ steps.version.outputs.VERSION }}'
+          $installer = '${{ steps.installer.outputs.INSTALLER }}'
+          $hash = '${{ steps.hash.outputs.SHA256 }}'
+
+          # Get changelog from novidades.txt
+          $changelog = ""
+          if (Test-Path "novidades.txt") {
+            $changelog = Get-Content "novidades.txt" -Raw
+            if ($changelog.Length -gt 500) {
+              $changelog = $changelog.Substring(0, 500) + "..."
+            }
+          }
+
+          $json = @{
+            version = $version
+            url = "https://github.com/${{ github.repository }}/releases/download/v$version/$installer"
+            sha256 = $hash
+            notes = $changelog
+            timestamp = (Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ")
+          } | ConvertTo-Json -Depth 5
+
+          $json | Out-File -FilePath "latest.json" -Encoding utf8
+          cat latest.json
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: GameMode-Installer-${{ steps.version.outputs.VERSION }}
+          path: ${{ steps.installer.outputs.INSTALLER }}
+          retention-days: 30
+
+      - name: Upload latest.json artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: latest-json
+          path: latest.json
+          retention-days: 30
+
+  release:
+    name: Create Release
+    needs: build
+    if: github.event_name == 'push' || github.event.inputs.sem_movement_helper != 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      releases: write
+    steps:
+      - name: Download installer
+        uses: actions/download-artifact@v4
+        with:
+          name: GameMode-Installer-${{ needs.build.outputs.version }}
+          path: .
+
+      - name: Download latest.json
+        uses: actions/download-artifact@v4
+        with:
+          name: latest-json
+          path: .
+
+      - name: Get installer filename
+        id: files
+        run: |
+          FILE=$(ls Instalar_GameMode_*.exe 2>/dev/null | head -1)
+          echo "installer=$FILE" >> $GITHUB_OUTPUT
+
+      - name: Create/Update Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.build.outputs.version }}
+          name: Game Mode v${{ needs.build.outputs.version }}
+          body_path: novidades.txt
+          files: |
+            ${{ steps.files.outputs.installer }}
+            latest.json
+          draft: false
+          prerelease: false
+          make_latest: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
