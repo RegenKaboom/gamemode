@@ -24,7 +24,6 @@ on:
 
 permissions:
   contents: write
-  releases: write
 
 env:
   APP_VERSION_FILE: gamemode_app.py
@@ -33,11 +32,6 @@ jobs:
   build:
     name: Build & Release
     runs-on: windows-latest
-    permissions:
-      contents: write
-    outputs:
-      version: ${{ steps.version.outputs.VERSION }}
-      installer: ${{ steps.installer.outputs.INSTALLER }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -184,43 +178,31 @@ jobs:
           path: latest.json
           retention-days: 30
 
-  release:
-    name: Create Release
-    needs: build
-    if: github.event_name == 'push' || github.event.inputs.sem_movement_helper != 'true'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - name: Download installer
-        uses: actions/download-artifact@v4
-        with:
-          name: GameMode-Installer-${{ needs.build.outputs.version }}
-          path: .
-
-      - name: Download latest.json
-        uses: actions/download-artifact@v4
-        with:
-          name: latest-json
-          path: .
-
-      - name: Get installer filename
-        id: files
-        run: |
-          FILE=$(ls Instalar_GameMode_*.exe 2>/dev/null | head -1)
-          echo "installer=$FILE" >> $GITHUB_OUTPUT
-
-      - name: Create/Update Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: v${{ needs.build.outputs.version }}
-          name: Game Mode v${{ needs.build.outputs.version }}
-          body_path: novidades.txt
-          files: |
-            ${{ steps.files.outputs.installer }}
-            latest.json
-          draft: false
-          prerelease: false
-          make_latest: true
+      - name: Publish release
+        if: ${{ github.event_name == 'push' || inputs.sem_movement_helper != 'true' }}
+        shell: pwsh
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ver = '${{ steps.version.outputs.VERSION }}'
+          $exe = '${{ steps.installer.outputs.INSTALLER }}'
+          $sha = '${{ steps.hash.outputs.SHA256 }}'
+          $notas = ""
+          if (Test-Path "novidades.txt") {
+            $notas = Get-Content "novidades.txt" -Raw
+            if ($notas.Length -gt 700) { $notas = $notas.Substring(0, 700) }
+          }
+          $manifesto = [ordered]@{
+            version = $ver
+            url = "https://github.com/${{ github.repository }}/releases/download/v$ver/$exe"
+            sha256 = $sha
+            notes = $notas
+          }
+          $manifesto | ConvertTo-Json | Set-Content -Path latest.json -Encoding utf8
+
+          gh release view "v$ver" *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload "v$ver" $exe latest.json --clobber
+          } else {
+            gh release create "v$ver" $exe latest.json --title "Game Mode $ver" --notes-file novidades.txt
+          }
