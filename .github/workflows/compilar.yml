@@ -4,11 +4,14 @@ on:
   workflow_dispatch:
     inputs:
       sem_movement_helper:
-        description: "Compilar SEM o Movement Helper (menos chance de alarme do antivírus)"
+        description: "Compilar SEM o Movement Helper (só gera o arquivo; NÃO publica atualização)"
         type: boolean
         default: false
   push:
     branches: [main]
+
+permissions:
+  contents: write
 
 jobs:
   compilar:
@@ -19,6 +22,14 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+
+      - name: Ler a versão do programa
+        shell: pwsh
+        run: |
+          $texto = Get-Content gamemode_app.py -Raw
+          $m = [regex]::Match($texto, '(?m)^APP_VERSION = "(\d+\.\d+)')
+          if (-not $m.Success) { throw "Não achei a linha APP_VERSION (no formato 2.4) em gamemode_app.py" }
+          "GM_VERSION=$($m.Groups[1].Value)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Instalar o Nuitka
         run: python -m pip install --upgrade pip nuitka ordered-set zstandard
@@ -31,7 +42,7 @@ jobs:
           python -m nuitka --standalone --windows-console-mode=disable --enable-plugin=tk-inter `
             --windows-icon-from-ico=app.ico --output-dir=build --output-filename=GameMode.exe `
             --company-name=GameMode --product-name=GameMode --file-description=GameMode `
-            --file-version=2.3.0.0 --product-version=2.3.0.0 `
+            "--file-version=$($env:GM_VERSION).0.0" "--product-version=$($env:GM_VERSION).0.0" `
             --include-module=gm_extras $mov --assume-yes-for-downloads gamemode_app.py
           if (-not (Test-Path "build/gamemode_app.dist/GameMode.exe")) { throw "O Nuitka não gerou o GameMode.exe" }
 
@@ -40,9 +51,35 @@ jobs:
 
       - name: Montar o instalador
         shell: pwsh
-        run: '& "C:\Program Files (x86)\NSIS\makensis.exe" GameMode.nsi'
+        run: '& "C:\Program Files (x86)\NSIS\makensis.exe" "/DAPP_VERSION=$env:GM_VERSION" GameMode.nsi'
 
       - uses: actions/upload-artifact@v4
         with:
           name: Instalador-GameMode
           path: Instalar_GameMode_*.exe
+
+      - name: Publicar a atualização para todo mundo
+        if: ${{ inputs.sem_movement_helper != true }}
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ver = $env:GM_VERSION
+          $exe = "Instalar_GameMode_$ver.exe"
+          $sha = (Get-FileHash $exe -Algorithm SHA256).Hash.ToLower()
+          $notas = ""
+          if (Test-Path NOVIDADES.txt) { $notas = (Get-Content NOVIDADES.txt -Raw).Trim() }
+          if ($notas.Length -gt 700) { $notas = $notas.Substring(0, 700) }
+          $manifesto = [ordered]@{
+            version = $ver
+            url     = "https://github.com/${{ github.repository }}/releases/download/v$ver/$exe"
+            sha256  = $sha
+            notes   = $notas
+          }
+          $manifesto | ConvertTo-Json | Set-Content -Path latest.json -Encoding utf8
+          gh release view "v$ver" *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload "v$ver" $exe latest.json --clobber
+          } else {
+            gh release create "v$ver" $exe latest.json --title "Game Mode $ver" --notes-file NOVIDADES.txt
+          }
