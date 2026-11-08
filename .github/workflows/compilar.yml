@@ -22,14 +22,13 @@ on:
       - 'welcome.bmp'
       - 'requirements.txt'
 
-permissions:
-  contents: write
-  releases: write
-
 jobs:
   build:
     name: Build & Release
     runs-on: windows-latest
+    permissions:
+      contents: write
+      releases: write
     outputs:
       version: ${{ steps.version.outputs.VERSION }}
       installer: ${{ steps.installer.outputs.INSTALLER }}
