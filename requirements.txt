@@ -1,0 +1,9 @@
+# Game Mode Dependencies
+# Core dependencies are handled by Nuitka (tkinter is stdlib)
+# These are for development/type checking only
+
+# Type hints
+typing-extensions>=4.8.0
+
+# Optional: for better performance
+# psutil>=5.9.0  # System monitoring (if needed in future)

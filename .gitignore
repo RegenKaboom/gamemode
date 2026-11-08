@@ -1,0 +1,44 @@
+# Build outputs
+build/
+dist/
+*.exe
+*.msi
+Instalar_GameMode_*.exe
+latest.json
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.venv/
+venv/
+env/
+*.egg-info/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Config (local)
+%APPDATA%\GameModeLite\config.json
+%APPDATA%\GameModeLite\detected_games.json
+
+# Logs
+*.log
+
+# Temporary
+*.tmp
+*.temp
