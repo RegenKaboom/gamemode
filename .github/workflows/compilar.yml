@@ -110,14 +110,21 @@ jobs:
       - name: Build installer with NSIS
         id: installer
         run: |
+          # Install NSIS
           choco install nsis --no-progress
+
+          # Add NSIS to PATH
           $nsisPath = "C:\Program Files (x86)\NSIS"
           if (Test-Path $nsisPath) {
             $env:PATH += ";$nsisPath"
           }
+
+          # Build installer
           $version = '${{ steps.version.outputs.VERSION }}'
           $outFile = "Instalar_GameMode_$version.exe"
+
           makensis /DAPP_VERSION=$version /DOUTFILE=$outFile GameMode.nsi
+
           if (Test-Path $outFile) {
             echo "Installer created: $outFile"
             echo "INSTALLER=$outFile" >> $env:GITHUB_OUTPUT
@@ -139,6 +146,8 @@ jobs:
           $version = '${{ steps.version.outputs.VERSION }}'
           $installer = '${{ steps.installer.outputs.INSTALLER }}'
           $hash = '${{ steps.hash.outputs.SHA256 }}'
+
+          # Get changelog from novidades.txt
           $changelog = ""
           if (Test-Path "novidades.txt") {
             $changelog = Get-Content "novidades.txt" -Raw
@@ -146,6 +155,7 @@ jobs:
               $changelog = $changelog.Substring(0, 500) + "..."
             }
           }
+
           $json = @{
             version = $version
             url = "https://github.com/${{ github.repository }}/releases/download/v$version/$installer"
@@ -153,6 +163,7 @@ jobs:
             notes = $changelog
             timestamp = (Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ")
           } | ConvertTo-Json -Depth 5
+
           $json | Out-File -FilePath "latest.json" -Encoding utf8
           cat latest.json
 
