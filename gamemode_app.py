@@ -126,7 +126,14 @@ POLL_ACTIVE_SECONDS = 3.0    # jogo aberto (menos trabalho enquanto você joga)
 RETRIM_SECONDS = 60.0
 POLL_IDLE_SLOW_SECONDS = 5.0  # depois de 1 min esperando o jogo, olha menos vezes
 IDLE_SLOW_AFTER = 60.0
-APP_VERSION = "2.3 (sem PowerShell codificado)"
+APP_VERSION = "2.4 (atualização automática)"
+UPDATE_REPO = "RegenKaboom/gamemode"                  # onde as versões novas são publicadas (GitHub Releases)
+UPDATE_MANIFEST_URL = f"https://github.com/{UPDATE_REPO}/releases/latest/download/latest.json"
+UPDATE_PAGE = f"https://github.com/{UPDATE_REPO}/releases/latest"
+UPDATE_MODE_LABELS = [("ask", "Avisar e perguntar antes de instalar"),
+                      ("auto", "Instalar sozinho (só com o jogo fechado)"),
+                      ("notify", "Só avisar e abrir a página de download"),
+                      ("off", "Nunca procurar atualização")]
 
 DEFAULT_SETTINGS = {
     "game": DEFAULT_GAME,
@@ -154,6 +161,7 @@ DEFAULT_SETTINGS = {
     "hotkeys": {"gamemode": "none", "move": "none"},
     "gamebar_backup": "",        # como estava o Xbox Game Bar antes de desligar (JSON)
     "profiles_v": 0,
+    "updates": {"mode": "ask", "skip": "", "last_check": 0.0},
     "fnf": {"preset": "dfjk", "keys": ["d", "f", "j", "k"], "pos": "bl", "auto_reset": False,
             "hotkey_toggle": "none", "hotkey_reset": "none"},
     "auto_game": False,          # trocar sozinho para o jogo da lista que abrir
@@ -3174,6 +3182,10 @@ class App:
         self._ping_at, self._ping_busy, self._ping_last = 0.0, False, None   # aviso de ping alto
         self._ping_new, self._ping_bad, self._ping_alert_at = False, 0, 0.0
         self._ensure_profiles()
+        self._boot_at = time.time()
+        self._upd_busy, self._upd_installing = False, False       # atualização automática
+        self._upd_result, self._upd_ready, self._upd_status = None, None, None
+        self._upd_notified = set()
         self._fnf_warned = False
 
         root.title("Game Mode")
@@ -3986,6 +3998,7 @@ class App:
         try:
             self._playtime_tick()
             self._game_tick()
+            self._update_tick()
         except Exception:
             pass
         # Tarefas vindas de outras threads
@@ -4865,6 +4878,122 @@ class App:
                                       f"7 dias: {gm_extras.fmt_hm(week)}     \u00b7     "
                                       f"Total: {gm_extras.fmt_hm(total)}     \u00b7     "
                                       f"Sessão agora: {sess}")
+
+    # ---- atualização automática ---------------------------------------
+
+    def _upd_say(self, text, level="info"):
+        self.add_log(level, text)
+        label = self._upd_status
+        try:
+            if label is not None and label.winfo_exists():
+                label.config(text=text)
+        except Exception:
+            pass
+
+    def _upd_check(self, manual=False, status=None):
+        """Procura versão nova em segundo plano. A única conexão é com o GitHub do projeto."""
+        if gm_extras is None or self._upd_busy:
+            return
+        if status is not None:
+            self._upd_status = status
+        self._upd_busy = True
+        self.settings["updates"]["last_check"] = time.time()
+
+        def work():
+            manifest = None
+            try:
+                manifest = gm_extras.fetch_manifest(UPDATE_MANIFEST_URL, UPDATE_REPO)
+            finally:
+                self._upd_result = (manifest, manual)
+                self._upd_busy = False
+
+        threading.Thread(target=work, daemon=True).start()
+        if manual:
+            self._upd_say("Procurando atualização...")
+
+    def _update_tick(self):
+        """Roda a cada atualização da janela: reage ao que os threads acharam e procura de tempos em tempos."""
+        if gm_extras is None:
+            return
+        if self._upd_ready is not None:
+            ready, self._upd_ready = self._upd_ready, None
+            self._upd_installed(ready)
+        if self._upd_result is not None:
+            (manifest, manual), self._upd_result = self._upd_result, None
+            self._upd_handle(manifest, manual)
+        u, now = self.settings["updates"], time.time()
+        if (u["mode"] != "off" and not self._upd_busy and not self._upd_installing
+                and now - self._boot_at > 10 and now - u["last_check"] > 6 * 3600):
+            self._upd_check()
+
+    def _upd_handle(self, manifest, manual):
+        current = APP_VERSION.split(" ")[0]
+        if manifest is None:
+            if manual:
+                self._upd_say("Não consegui procurar atualização (sem internet, ou ainda não há versão "
+                              "publicada).", "warn")
+            return
+        version = manifest["version"]
+        if not gm_extras.is_newer(version, APP_VERSION):
+            if manual:
+                self._upd_say(f"Você já está na versão mais nova ({current}).", "ok")
+            return
+        u = self.settings["updates"]
+        action = gm_extras.update_action(u["mode"], is_frozen(), version, u["skip"],
+                                         self._roblox_running(), manual)
+        if action == "wait":                     # jogo aberto: tenta de novo em 10 minutos
+            u["last_check"] = time.time() - 6 * 3600 + 600
+        elif action == "install":
+            self._upd_install(manifest)
+        elif action == "prompt":
+            text = f"Chegou a versão {version} do Game Mode (você tem a {current})."
+            if manifest["notes"].strip():
+                text += "\n\n" + manifest["notes"].strip()[:500]
+            text += "\n\nAtualizar agora? O programa fecha, atualiza e abre de novo sozinho."
+            if messagebox.askyesno("Game Mode", text, parent=self.root):
+                self._upd_install(manifest)
+            else:
+                u["skip"] = version
+                save_settings(self.settings)
+                self._upd_say(f"Atualização {version} adiada. Dá para instalar depois em "
+                              "Opções, Atualizações.")
+        elif action == "notify" and (manual or version not in self._upd_notified):
+            self._upd_notified.add(version)
+            self._upd_say(f"Versão {version} disponível. Baixe em {UPDATE_PAGE}")
+            if manual or messagebox.askyesno("Game Mode", f"Chegou a versão {version} do Game Mode.\n\n"
+                                             "Abrir a página de download?", parent=self.root):
+                import webbrowser
+                webbrowser.open(UPDATE_PAGE)
+
+    def _upd_install(self, manifest):
+        if self._upd_installing:
+            return
+        self._upd_installing = True
+        dest = os.path.join(tempfile.gettempdir(), "GameModeUpdate",
+                            f"Instalar_GameMode_{manifest['version']}.exe")
+        self._upd_say(f"Baixando a versão {manifest['version']}...")
+
+        def work():
+            try:
+                self._upd_ready = ("ok", gm_extras.download_installer(manifest, dest))
+            except Exception as exc:
+                self._upd_ready = ("erro", str(exc))
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _upd_installed(self, ready):
+        self._upd_installing = False
+        kind, value = ready
+        if kind != "ok":
+            self._upd_say(f"Não consegui baixar a atualização: {value}", "warn")
+            return
+        try:
+            subprocess.Popen([value, "/S"], close_fds=True, creationflags=0x00000008 | 0x00000200)
+        except OSError as exc:
+            self._upd_say(f"Não consegui abrir o instalador: {exc}", "warn")
+            return
+        self._upd_say("Atualizando o Game Mode... ele abre de novo sozinho.", "ok")
+        self.on_close()
 
     def _ping_alert_tick(self, now):
         """Mede o ping em segundo plano (a cada 10 s) e avisa se ficar ruim por 2 medidas seguidas."""
@@ -5979,6 +6108,23 @@ class App:
             btn_del.config(command=remove_profile)
             load()
 
+        if gm_extras is not None:
+            label("Atualizações", pady=(16, 4))
+            upd_names = dict(UPDATE_MODE_LABELS)
+            upd_var = tk.StringVar(value=upd_names.get(self.settings["updates"]["mode"], upd_names["ask"]))
+            ttk.Combobox(body, textvariable=upd_var, values=[t for _k, t in UPDATE_MODE_LABELS],
+                         state="readonly", font=(FONT, 10)).pack(fill="x", padx=20, ipady=3)
+            upd_row = tk.Frame(body, bg=BG)
+            upd_row.pack(fill="x", padx=20, pady=(8, 0))
+            upd_label = tk.Label(body, text="" if is_frozen() else
+                                 "Rodando como script: a atualização automática só vale no programa "
+                                 "instalado (.exe).", bg=BG, fg=MUTED, font=(FONT, 8), justify="left",
+                                 wraplength=520)
+            tk.Button(upd_row, text="Procurar atualização agora", relief="flat", bd=0, bg=PANEL, fg=TEXT,
+                      activebackground=BORDER, activeforeground=TEXT, padx=12, pady=5, font=(FONT, 9),
+                      cursor="hand2", command=lambda: self._upd_check(True, upd_label)).pack(side="left")
+            upd_label.pack(anchor="w", padx=20, pady=(4, 0))
+
         label("Ao abrir o programa")
         try:
             at_login = autostart_enabled()
@@ -6045,6 +6191,8 @@ class App:
                 if not apply_profiles():
                     return
                 game = self.settings["game"]
+                self.settings["updates"]["mode"] = {t: k for k, t in UPDATE_MODE_LABELS}.get(
+                    upd_var.get(), "ask")
             self.settings["game"] = game
             for key, var in vars_.items():
                 self.settings[key] = bool(var.get())
