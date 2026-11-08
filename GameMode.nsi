@@ -1,10 +1,12 @@
-﻿; Instalador do Game Mode (programa compilado: NÃO precisa de Python).
+; Instalador do Game Mode (programa compilado: NÃO precisa de Python).
 ; Antes de compilar este roteiro, o programa precisa estar compilado em build\gamemode_app.dist
 ; (veja o COMPILAR.txt). Depois: botão direito neste arquivo > "Compile NSIS Script".
 
 Unicode true
 !define APP_NAME "Game Mode"
-!define APP_VERSION "2.3"
+!ifndef APP_VERSION
+  !define APP_VERSION "2.4"
+!endif
 !define APP_EXE "GameMode.exe"
 !define DIST "build\gamemode_app.dist"
 !define UNINST_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\GameMode"
@@ -59,6 +61,14 @@ VIAddVersionKey /LANG=${LANG_PORTUGUESEBR} "FileDescription" "Instalador do ${AP
 VIAddVersionKey /LANG=${LANG_PORTUGUESEBR} "FileVersion" "${APP_VERSION}"
 VIAddVersionKey /LANG=${LANG_PORTUGUESEBR} "ProductVersion" "${APP_VERSION}"
 
+; Instalação silenciosa (/S) é a atualização automática: abre o programa de novo no final.
+Function .onInstSuccess
+  IfSilent 0 not_silent
+    SetOutPath "$INSTDIR\app"
+    Exec '"$INSTDIR\app\${APP_EXE}"'
+  not_silent:
+FunctionEnd
+
 Function LaunchApp
   SetOutPath "$INSTDIR\app"
   Exec '"$INSTDIR\app\${APP_EXE}"'
@@ -68,9 +78,18 @@ FunctionEnd
 Section "!Game Mode" SecMain
   SectionIn RO
 
-  ; fecha o Game Mode se estiver aberto (pedido educado, sem forçar)
+  ; fecha o Game Mode se estiver aberto (pedido educado, sem forçar) e espera ele sair
   nsExec::ExecToLog 'taskkill /IM "${APP_EXE}"'
-  Sleep 1500
+  StrCpy $R9 0
+  wait_exit:
+    ClearErrors
+    Delete "$INSTDIR\app\${APP_EXE}"
+    IfErrors 0 exit_ok
+    IntOp $R9 $R9 + 1
+    IntCmp $R9 15 exit_ok 0 exit_ok
+    Sleep 1000
+    Goto wait_exit
+  exit_ok:
 
   RMDir /r "$INSTDIR\app"
   SetOutPath "$INSTDIR\app"
@@ -92,13 +111,22 @@ Section "!Game Mode" SecMain
 SectionEnd
 
 Section "Atalho na Área de Trabalho" SecDesktop
+  ; na atualização silenciosa, só refaz o atalho se ele já existia (respeita quem apagou)
+  IfSilent 0 dt_make
+  IfFileExists "$DESKTOP\${APP_NAME}.lnk" dt_make dt_skip
+  dt_make:
   SetOutPath "$INSTDIR\app"
   CreateShortCut "$DESKTOP\${APP_NAME}.lnk" "$INSTDIR\app\${APP_EXE}" "" "$INSTDIR\app\${APP_EXE}" 0 "" "" "${APP_NAME}"
+  dt_skip:
 SectionEnd
 
 Section "Atalho no Menu Iniciar" SecMenu
+  IfSilent 0 mn_make
+  IfFileExists "$SMPROGRAMS\${APP_NAME}.lnk" mn_make mn_skip
+  mn_make:
   SetOutPath "$INSTDIR\app"
   CreateShortCut "$SMPROGRAMS\${APP_NAME}.lnk" "$INSTDIR\app\${APP_EXE}" "" "$INSTDIR\app\${APP_EXE}" 0 "" "" "${APP_NAME}"
+  mn_skip:
 SectionEnd
 
 !insertmacro MUI_FUNCTION_DESCRIPTION_BEGIN
