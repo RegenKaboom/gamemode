@@ -22,6 +22,10 @@ on:
       - 'welcome.bmp'
       - 'requirements.txt'
 
+permissions:
+  contents: write
+  releases: write
+
 env:
   APP_VERSION_FILE: gamemode_app.py
 
@@ -31,7 +35,6 @@ jobs:
     runs-on: windows-latest
     permissions:
       contents: write
-      releases: write
     outputs:
       version: ${{ steps.version.outputs.VERSION }}
       installer: ${{ steps.installer.outputs.INSTALLER }}
@@ -188,7 +191,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      releases: write
     steps:
       - name: Download installer
         uses: actions/download-artifact@v4
