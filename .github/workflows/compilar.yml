@@ -22,6 +22,9 @@ on:
       - 'welcome.bmp'
       - 'requirements.txt'
 
+env:
+  APP_VERSION_FILE: gamemode_app.py
+
 jobs:
   build:
     name: Build & Release
@@ -105,22 +108,16 @@ jobs:
           }
 
       - name: Build installer with NSIS
+        id: installer
         run: |
-          # Install NSIS
           choco install nsis --no-progress
-
-          # Add NSIS to PATH
           $nsisPath = "C:\Program Files (x86)\NSIS"
           if (Test-Path $nsisPath) {
             $env:PATH += ";$nsisPath"
           }
-
-          # Build installer
           $version = '${{ steps.version.outputs.VERSION }}'
           $outFile = "Instalar_GameMode_$version.exe"
-
           makensis /DAPP_VERSION=$version /DOUTFILE=$outFile GameMode.nsi
-
           if (Test-Path $outFile) {
             echo "Installer created: $outFile"
             echo "INSTALLER=$outFile" >> $env:GITHUB_OUTPUT
@@ -128,7 +125,6 @@ jobs:
             echo "Installer not found!"
             exit 1
           }
-        id: installer
 
       - name: Generate SHA256
         id: hash
@@ -143,17 +139,13 @@ jobs:
           $version = '${{ steps.version.outputs.VERSION }}'
           $installer = '${{ steps.installer.outputs.INSTALLER }}'
           $hash = '${{ steps.hash.outputs.SHA256 }}'
-
-          # Get changelog from novidades.txt
           $changelog = ""
           if (Test-Path "novidades.txt") {
             $changelog = Get-Content "novidades.txt" -Raw
-            # Truncate to first 500 chars
             if ($changelog.Length -gt 500) {
               $changelog = $changelog.Substring(0, 500) + "..."
             }
           }
-
           $json = @{
             version = $version
             url = "https://github.com/${{ github.repository }}/releases/download/v$version/$installer"
@@ -161,7 +153,6 @@ jobs:
             notes = $changelog
             timestamp = (Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ")
           } | ConvertTo-Json -Depth 5
-
           $json | Out-File -FilePath "latest.json" -Encoding utf8
           cat latest.json
 
@@ -187,7 +178,6 @@ jobs:
     permissions:
       contents: write
       releases: write
-
     steps:
       - name: Download installer
         uses: actions/download-artifact@v4
@@ -210,8 +200,8 @@ jobs:
       - name: Create/Update Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ needs.build.outputs.VERSION }}
-          name: Game Mode v${{ needs.build.outputs.VERSION }}
+          tag_name: v${{ needs.build.outputs.version }}
+          name: Game Mode v${{ needs.build.outputs.version }}
           body_path: novidades.txt
           files: |
             ${{ steps.files.outputs.installer }}
