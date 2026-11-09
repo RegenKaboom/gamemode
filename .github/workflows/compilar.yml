@@ -32,6 +32,11 @@ jobs:
   build:
     name: Build & Release
     runs-on: windows-latest
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ steps.version.outputs.VERSION }}
+      installer: ${{ steps.installer.outputs.INSTALLER }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -107,16 +112,13 @@ jobs:
       - name: Build installer with NSIS
         id: installer
         run: |
-          # Install NSIS
           choco install nsis --no-progress
 
-          # Add NSIS to PATH
           $nsisPath = "C:\Program Files (x86)\NSIS"
           if (Test-Path $nsisPath) {
             $env:PATH += ";$nsisPath"
           }
 
-          # Build installer
           $version = '${{ steps.version.outputs.VERSION }}'
           $outFile = "Instalar_GameMode_$version.exe"
 
@@ -144,7 +146,6 @@ jobs:
           $installer = '${{ steps.installer.outputs.INSTALLER }}'
           $hash = '${{ steps.hash.outputs.SHA256 }}'
 
-          # Get changelog from novidades.txt
           $changelog = ""
           if (Test-Path "novidades.txt") {
             $changelog = Get-Content "novidades.txt" -Raw
@@ -179,7 +180,7 @@ jobs:
           retention-days: 30
 
       - name: Publish release
-        if: ${{ github.event_name == 'push' || inputs.sem_movement_helper != 'true' }}
+        if: ${{ github.event_name == 'push' || github.event.inputs.sem_movement_helper != 'true' }}
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
@@ -200,9 +201,9 @@ jobs:
           }
           $manifesto | ConvertTo-Json | Set-Content -Path latest.json -Encoding utf8
 
-          gh release view "v$ver" *> $null
+          & gh release view "v$ver" *> $null
           if ($LASTEXITCODE -eq 0) {
-            gh release upload "v$ver" $exe latest.json --clobber
+            & gh release upload "v$ver" $exe latest.json --clobber
           } else {
-            gh release create "v$ver" $exe latest.json --title "Game Mode $ver" --notes-file novidades.txt
+            & gh release create "v$ver" $exe latest.json --title "Game Mode $ver" --notes-file novidades.txt
           }
