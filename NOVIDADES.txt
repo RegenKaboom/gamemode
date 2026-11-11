@@ -1,0 +1,14 @@
+Version 2.5
+- Languages: English, Portuguese and Spanish. Pick one in the installer or in Options > Accessibility.
+- Light and dark themes, automatic (same as Windows) or your choice.
+- Steam and Epic Games: Options > Import from Steam / Epic adds your installed games as profiles.
+
+Versão 2.5
+- Idiomas: inglês, português e espanhol. Escolha no instalador ou em Opções > Acessibilidade.
+- Tema claro e escuro, automático (igual ao Windows) ou à sua escolha.
+- Steam e Epic Games: Opções > Importar da Steam / Epic adiciona seus jogos instalados como perfis.
+
+Versión 2.5
+- Idiomas: inglés, portugués y español. Elige en el instalador o en Opciones > Accesibilidad.
+- Tema claro y oscuro, automático (igual que Windows) o a tu elección.
+- Steam y Epic Games: Opciones > Importar de Steam / Epic añade tus juegos instalados como perfiles.
