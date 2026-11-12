@@ -28,7 +28,7 @@ jobs:
         run: |
           $texto = Get-Content gamemode_app.py -Raw
           $m = [regex]::Match($texto, '(?m)^APP_VERSION = "(\d+\.\d+)')
-          if (-not $m.Success) { throw "Não achei a linha APP_VERSION (no formato 2.5) em gamemode_app.py" }
+          if (-not $m.Success) { throw "Não achei a linha APP_VERSION (no formato 2.6) em gamemode_app.py" }
           "GM_VERSION=$($m.Groups[1].Value)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Instalar o Nuitka
@@ -44,7 +44,8 @@ jobs:
             --company-name=GameMode --product-name=GameMode --file-description=GameMode `
             "--file-version=$($env:GM_VERSION).0.0" "--product-version=$($env:GM_VERSION).0.0" `
             --include-module=gm_extras --include-module=gm_i18n --include-module=gm_lang `
-            --include-module=gm_games $mov --assume-yes-for-downloads gamemode_app.py
+            --include-module=gm_games --include-data-files=NOVIDADES.txt=NOVIDADES.txt `
+            $mov --assume-yes-for-downloads gamemode_app.py
           if (-not (Test-Path "build/gamemode_app.dist/GameMode.exe")) { throw "O Nuitka não gerou o GameMode.exe" }
 
       - name: Instalar o NSIS
