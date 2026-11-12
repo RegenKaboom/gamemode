@@ -304,11 +304,11 @@ def normalize_exe(text):
     return t if t.lower().endswith(".exe") else t + ".exe"
 
 
-def new_profile(exe, name=None, ping_host="", gpu=False, look="Classic", path=""):
+def new_profile(exe, name=None, ping_host="", gpu=False, look="Classic", path="", fso=False):
     exe = normalize_exe(exe)
     return {"exe": exe, "name": (name or "").strip() or (exe[:-4].title() if exe else tr("Novo jogo")),
             "ping_host": str(ping_host or "").strip(), "gpu": bool(gpu),
-            "look": look or "Classic", "path": str(path or "")}
+            "look": look or "Classic", "path": str(path or ""), "fso": bool(fso)}
 
 
 def find_profile(profiles, exe):
@@ -333,7 +333,7 @@ def clean_profiles(raw, valid_looks=None):
         if not isinstance(look, str) or (valid_looks is not None and look not in valid_looks):
             look = "Classic"
         out.append(new_profile(exe, item.get("name"), item.get("ping_host"), item.get("gpu"),
-                               look, item.get("path")))
+                               look, item.get("path"), item.get("fso")))
     return out
 
 
@@ -346,6 +346,34 @@ def pick_running(profiles, current_exe, running_names):
         if p.get("exe", "").lower() in running:
             return p
     return None
+
+
+# ------------------------------------------------ fullscreen optimizations and update notes
+FSO_FLAG = "DISABLEDXMAXIMIZEDWINDOWEDMODE"
+
+
+def layers_with(current, flag, on):
+    """Text of a Windows 'AppCompat Layers' value with one flag added or removed; other flags stay.
+    Returns '' when nothing is left (the value should then be deleted)."""
+    tokens = [t for t in str(current or "").split() if t != "~" and t != flag]
+    if on:
+        tokens.append(flag)
+    return ("~ " + " ".join(tokens)) if tokens else ""
+
+
+def notes_for(text, lang):
+    """The part of NOVIDADES.txt written in one language (en/pt/es); English when that one is missing."""
+    heads = {"version": "en", "versão": "pt", "versao": "pt", "versión": "es", "version ": "en"}
+    blocks, cur = {}, None
+    for line in str(text).splitlines():
+        low = line.strip().lower()
+        word = low.split(" ")[0] if low else ""
+        if word in heads and len(low.split(" ")) <= 2:
+            cur = heads[word]
+            blocks[cur] = []
+        elif cur is not None and line.strip():
+            blocks[cur].append(line.strip())
+    return "\n".join(blocks.get(lang) or blocks.get("en") or [])
 
 
 # ------------------------------------------------ visual "Client" (Feather/Badlion)

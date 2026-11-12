@@ -129,6 +129,20 @@ DEFAULT_PROTECT = {
     "obs64.exe",
 }
 
+# Quanto o programa olha as coisas: normal, leve ou mínimo (o mais leve). Ajustável em Opções.
+PERF_LEVELS = {
+    "normal": {"hud": 66, "poll": 0.005, "engine": 1.0, "idle": 1000, "minimized": 2000},
+    "light": {"hud": 100, "poll": 0.010, "engine": 1.5, "idle": 1500, "minimized": 3000},
+    "minimal": {"hud": 150, "poll": 0.016, "engine": 2.0, "idle": 2000, "minimized": 4000},
+}
+PERF = dict(PERF_LEVELS["normal"])
+
+
+def set_perf(level):
+    PERF.clear()
+    PERF.update(PERF_LEVELS.get(level, PERF_LEVELS["normal"]))
+
+
 POLL_SECONDS = 2.0           # esperando o jogo abrir
 FNF_PRESET_LABELS = [("dfjk", "D F J K"), ("arrows", tr("Setas")), ("wasd", "A S W D"),
                      ("custom", tr("Personalizado"))]
@@ -140,7 +154,7 @@ POLL_ACTIVE_SECONDS = 3.0    # jogo aberto (menos trabalho enquanto você joga)
 RETRIM_SECONDS = 60.0
 POLL_IDLE_SLOW_SECONDS = 5.0  # depois de 1 min esperando o jogo, olha menos vezes
 IDLE_SLOW_AFTER = 60.0
-APP_VERSION = "2.5 (languages, theme, Steam and Epic)"
+APP_VERSION = "2.6 (update notice, performance settings)"
 UPDATE_REPO = "RegenKaboom/gamemode"                  # onde as versões novas são publicadas (GitHub Releases)
 UPDATE_MANIFEST_URL = f"https://github.com/{UPDATE_REPO}/releases/latest/download/latest.json"
 UPDATE_PAGE = f"https://github.com/{UPDATE_REPO}/releases/latest"
@@ -175,6 +189,12 @@ DEFAULT_SETTINGS = {
     "hotkeys": {"gamemode": "none", "move": "none"},
     "gamebar_backup": "",        # como estava o Xbox Game Bar antes de desligar (JSON)
     "profiles_v": 0,
+    "keep_awake": True,      # tela e PC acordados enquanto o jogo roda
+    "sounds": True,          # bipe ao ligar/desligar o Game Mode
+    "perf": {"level": "normal"},   # uso de processador do próprio programa: normal | light | minimal
+    "fso_paths": [],         # exes que o programa mudou nas otimizações de tela cheia (para poder desfazer)
+    "seen_version": "",      # última versão que abriu aqui (para avisar depois de atualizar)
+    "update_notice": True,   # avisar quando o Game Mode for atualizado
     "ui": {"lang": "", "theme": ""},    # "" = not chosen yet; then auto | en | pt | es / auto | dark | light
     "updates": {"mode": "ask", "skip": "", "last_check": 0.0},
     "fnf": {"preset": "dfjk", "keys": ["d", "f", "j", "k"], "pos": "bl", "auto_reset": False,
@@ -265,6 +285,9 @@ def _merge_settings(default, saved):
         elif type(other) is type(value) or (isinstance(value, float) and type(other) is int):
             default[key] = float(other) if isinstance(value, float) else other
     return default
+
+
+_FIRST_RUN = not os.path.isfile(SETTINGS_PATH)   # primeira vez neste PC: não avisa de atualização
 
 
 def load_settings():
@@ -542,6 +565,18 @@ def tune_self(low_power):
     else:
         set_priority(h, ABOVE_NORMAL_PRIORITY_CLASS)
         set_eco(h, "off")
+
+
+def whats_new_text():
+    """The 'what is new' text for this version, in the language chosen (from NOVIDADES.txt next to the program)."""
+    lang = gm_i18n.lang() if gm_i18n is not None else "pt"
+    for base in (os.path.dirname(os.path.abspath(sys.argv[0])), os.path.dirname(os.path.abspath(__file__))):
+        try:
+            with open(os.path.join(base, "NOVIDADES.txt"), encoding="utf-8-sig") as f:
+                return gm_extras.notes_for(f.read(), lang) if gm_extras is not None else ""
+        except OSError:
+            continue
+    return ""
 
 
 def trim_self():
@@ -1136,7 +1171,7 @@ class InputWatcher:
                     self.poll_once(time.monotonic())
                 except Exception:
                     pass
-                self._stop.wait(0.005)
+                self._stop.wait(PERF["poll"])
             else:
                 self._stop.wait(0.2)
 
@@ -1895,6 +1930,35 @@ def gpu_pref_clear(paths):
     except OSError:
         pass
     return removed
+
+
+FSO_KEY = r"Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers"
+
+
+def fso_apply(paths, off):
+    """Desliga (off=True) ou religa as otimizações de tela cheia do Windows para cada .exe, só do seu
+    usuário e sem apagar outras opções do programa. Retorna os caminhos que mudaram."""
+    import winreg
+    changed = []
+    access = winreg.KEY_SET_VALUE | winreg.KEY_QUERY_VALUE
+    with winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, FSO_KEY, 0, access) as key:
+        for path in paths:
+            try:
+                current = winreg.QueryValueEx(key, path)[0]
+            except OSError:
+                current = ""
+            new = gm_extras.layers_with(current, gm_extras.FSO_FLAG, off)
+            if new == current:
+                continue
+            if new:
+                winreg.SetValueEx(key, path, 0, winreg.REG_SZ, new)
+            else:
+                try:
+                    winreg.DeleteValue(key, path)
+                except OSError:
+                    pass
+            changed.append(path)
+    return changed
 
 
 def process_mem_mb(exe_name):
@@ -2722,6 +2786,17 @@ EMPTY_SNAPSHOT = {"running": False, "boosted": False, "slowed": 0, "procs": 0,
                   "touched": 0, "freed": 0, "rows": [], "since": 0.0}
 
 
+def set_awake(on):
+    """Enquanto ligado, o Windows não apaga a tela nem dorme. Some sozinho se o programa fechar."""
+    try:
+        fn = kernel32.SetThreadExecutionState
+        fn.argtypes = [wintypes.DWORD]
+        fn.restype = wintypes.DWORD
+        fn(0x80000000 | (0x00000001 | 0x00000002 if on else 0))   # CONTINUOUS (+ SYSTEM + DISPLAY)
+    except Exception:
+        pass
+
+
 class Engine(threading.Thread):
     def __init__(self, settings, events):
         super().__init__(daemon=True)
@@ -2810,11 +2885,16 @@ class Engine(threading.Thread):
         last_procs = None
         last_running = None
         idle_since = time.time()
+        awake = False
         try:
             while not self.stop_event.is_set():
                 procs = list_processes()
                 running = any(n == mode.game for n in procs.values())
                 dirty = running != last_running
+                want_awake = bool(running and self.settings.get("keep_awake", True))
+                if want_awake != awake:
+                    awake = want_awake
+                    set_awake(awake)
 
                 if running:
                     first_pass = not mode.active
@@ -2866,12 +2946,13 @@ class Engine(threading.Thread):
                 last_running = running
                 if running:
                     idle_since = None
-                    pause = POLL_ACTIVE_SECONDS
+                    pause = POLL_ACTIVE_SECONDS * PERF["engine"]
                 else:
                     if idle_since is None:
                         idle_since = time.time()
                     waited = time.time() - idle_since
-                    pause = POLL_SECONDS if waited < IDLE_SLOW_AFTER else POLL_IDLE_SLOW_SECONDS
+                    pause = (POLL_SECONDS if waited < IDLE_SLOW_AFTER
+                             else POLL_IDLE_SLOW_SECONDS) * PERF["engine"]
                 if running and self.settings.get("unslow_active", True):
                     end = time.time() + pause
                     while not self.stop_event.is_set():
@@ -2887,6 +2968,7 @@ class Engine(threading.Thread):
         except Exception:
             self.log("warn", tr("Erro inesperado no Game Mode:\n") + traceback.format_exc())
         finally:
+            set_awake(False)
             n, failed = mode.restore()
             if n or failed:
                 self.log("info", tr('{} processo(s) restaurado(s)').format(n)
@@ -3156,6 +3238,7 @@ class App:
     def __init__(self, root, start_minimized=False):
         self.root = root
         self.settings = load_settings()
+        set_perf(self.settings["perf"].get("level", "normal"))
         self._names_cache = (0.0, set())    # programas abertos (nome, quando)
         self._gt_at = 0.0                   # última vez que olhei o jogo/perfil
         self._path_at = 0.0                 # última tentativa de achar o caminho do jogo
@@ -3924,6 +4007,8 @@ class App:
 
     def _beep(self, high):
         """Bipe curto (em outra thread, para não atrasar nenhum clique)."""
+        if not self.settings.get("sounds", True):
+            return
         def play():
             try:
                 import winsound
@@ -4023,7 +4108,7 @@ class App:
                     pass
         finally:
             # Janela minimizada: olha só a cada 2 s. Visível: 2 vezes por segundo.
-            self.root.after(2000 if self._minimized else 500, self.refresh)
+            self.root.after(PERF["minimized"] if self._minimized else 500, self.refresh)
 
     def _refresh(self):
         try:
@@ -4181,6 +4266,48 @@ class App:
         if self.settings["autostart_mode"] and not self.is_on() and not self.stopping:
             self.toggle()
             self.add_log("info", tr("Game Mode ligado automaticamente ao abrir."))
+        try:
+            self._after_update_notice()
+        except Exception:
+            write_error_log("Aviso de atualização falhou:\n" + traceback.format_exc())
+
+    def _after_update_notice(self):
+        """Avisa que o programa acabou de ser atualizado (uma vez por versão nova, nunca na 1ª instalação)."""
+        current = APP_VERSION.split()[0]
+        seen = self.settings.get("seen_version", "")
+        if seen == current:
+            return
+        self.settings["seen_version"] = current
+        save_settings(self.settings)
+        if _FIRST_RUN or not self.settings.get("update_notice", True):
+            return
+        self.notify("ok", tr('Game Mode atualizado para a versão {}.').format(current))
+        self._beep(True)
+        if self._minimized or self.settings["start_minimized"]:
+            return                      # janela escondida: fica só o aviso na lista
+        win = tk.Toplevel(self.root)
+        win.title("Game Mode")
+        win.configure(bg=BG)
+        win.resizable(False, False)
+        win.attributes("-topmost", True)
+        box = tk.Frame(win, bg=BG)
+        box.pack(padx=26, pady=22)
+        tk.Label(box, text=tr("Game Mode atualizado!"), bg=BG, fg=TEXT, font=(FONT, 14, "bold")).pack(anchor="w")
+        tk.Label(box, text=tr('Agora você está na versão {}.').format(current), bg=BG, fg=MUTED,
+                 font=(FONT, 10)).pack(anchor="w", pady=(4, 10))
+        notes = whats_new_text()
+        if notes:
+            tk.Label(box, text=tr("Novidades"), bg=BG, fg=ACCENT, font=(FONT, 9, "bold")).pack(anchor="w")
+            tk.Label(box, text=notes, bg=BG, fg=TEXT, font=(FONT, 9), justify="left",
+                     wraplength=400).pack(anchor="w", pady=(4, 0))
+        tk.Button(box, text="OK", command=win.destroy, bg=ACCENT, fg="white", activebackground=ACCENT_HOVER,
+                  activeforeground="white", relief="flat", bd=0, padx=26, pady=7, font=(FONT, 9, "bold"),
+                  cursor="hand2").pack(anchor="e", pady=(16, 0))
+        win.update_idletasks()
+        x = self.root.winfo_rootx() + max(0, (self.root.winfo_width() - win.winfo_width()) // 2)
+        y = self.root.winfo_rooty() + max(0, (self.root.winfo_height() - win.winfo_height()) // 3)
+        win.geometry(f"+{x}+{y}")
+        win.after(400, lambda: win.attributes("-topmost", False))
 
     def panic_restore(self):
         """Solta tudo: Movement Helper e as mudanças do Game Mode."""
@@ -5197,7 +5324,7 @@ class App:
                 self.overlay.keep_on_top()
         except Exception:
             write_error_log(tr("Erro nos overlays:\n") + traceback.format_exc())
-        self.root.after(66 if ov["on"] else 400, self._hud_tick)
+        self.root.after(PERF["hud"] if ov["on"] else 400, self._hud_tick)
 
     def _build_overlay_card(self, parent):
         ov = self.settings["overlay"]
@@ -5754,7 +5881,7 @@ class App:
                 self.overlay.keep_on_top()
         except Exception:
             pass
-        self.root.after(120 if self._bright_realtime() else 1000, self._bright_tick)
+        self.root.after(120 if self._bright_realtime() else PERF["idle"], self._bright_tick)
 
     # ---- gerenciar apps (adicionar / remover) -------------------------
 
@@ -5765,8 +5892,30 @@ class App:
         except Exception:
             return []
 
+    def _apply_fso_pref(self):
+        """Otimizações de tela cheia desligadas nos jogos que pediram; religa o que o programa mudou e sobrou."""
+        try:
+            if gm_extras is None:
+                return
+            s = self.settings
+            desired = set()
+            for prof in s["profiles"]:
+                if prof.get("fso"):
+                    desired |= set(gpu_targets_for(prof["exe"], s))
+            changed = fso_apply(sorted(desired), True) if desired else []
+            stale = set(s["fso_paths"]) - desired
+            back = fso_apply(sorted(stale), False) if stale else []
+            s["fso_paths"] = sorted((set(s["fso_paths"]) | set(changed)) - stale)
+            if changed:
+                self.add_log("ok", tr('Otimizações de tela cheia desativadas para {} programa(s). Valem na próxima vez que o jogo abrir.').format(len(changed)))
+            if back:
+                self.add_log("ok", tr('Otimizações de tela cheia de volta ao normal ({}).').format(len(back)))
+        except Exception:
+            write_error_log("Otimizações de tela cheia falharam:\n" + traceback.format_exc())
+
     def _apply_gpu_pref(self):
         """GPU de alto desempenho para todos os jogos da lista que pediram; desfaz o que sobrou."""
+        self._apply_fso_pref()
         try:
             s = self.settings
             desired = set()
@@ -6046,6 +6195,7 @@ class App:
             name_var, ping_var = tk.StringVar(), tk.StringVar()
             look_var, gpu_var = tk.StringVar(), tk.BooleanVar()
             auto_var = tk.BooleanVar(value=self.settings["auto_game"])
+            fso_var = tk.BooleanVar()
             det = tk.Frame(body, bg=BG)
             det.pack(fill="x", padx=20, pady=(10, 0))
             look_box = ttk.Combobox(det, textvariable=look_var, values=list(HUD_LOOKS),
@@ -6058,6 +6208,7 @@ class App:
                     row=i, column=0, sticky="w", pady=3, padx=(0, 14))
                 widget.grid(row=i, column=1, sticky="w", pady=3)
             check(tr("GPU de alto desempenho neste jogo (vale na próxima vez que o jogo abrir)"), gpu_var)
+            check(tr("Desativar otimizações de tela cheia neste jogo (só se o jogo travar ou tiver atraso)"), fso_var)
             check(tr("Trocar sozinho para o jogo da lista que você abrir"), auto_var)
 
             def entry_text(q):
@@ -6070,6 +6221,7 @@ class App:
                 ping_var.set(q["ping_host"])
                 look_var.set(q["look"] if q["look"] in HUD_LOOKS else "Classic")
                 gpu_var.set(bool(q["gpu"]))
+                fso_var.set(bool(q.get("fso")))
                 prof_pick.config(values=[entry_text(x) for x in profs])
                 prof_pick.current(sel[0])
 
@@ -6081,6 +6233,7 @@ class App:
                 q["ping_host"] = ping_var.get().strip()
                 q["look"] = look_var.get() if look_var.get() in HUD_LOOKS else "Classic"
                 q["gpu"] = bool(gpu_var.get())
+                q["fso"] = bool(fso_var.get())
 
             def pick(_event=None):
                 commit()
@@ -6240,6 +6393,7 @@ class App:
             ("unslow_active", tr("App da lista que você está usando volta ao normal até você sair dele")),
             ("io_priority", tr("Disco com prioridade baixa nos apps em segundo plano")),
             ("power_plan", tr("Plano de energia Alto desempenho enquanto o jogo roda")),
+            ("keep_awake", tr("Não deixar a tela apagar nem o PC dormir durante o jogo")),
             ("limit_cpu", tr("Prender os apps em segundo plano a menos núcleos (PCs com mais de 4)")),
         ]
         if gm_extras is None:
@@ -6258,6 +6412,25 @@ class App:
             body, tr("Apps que nunca devem ser tocados"), self.settings["protect"],
             self._running_choices, None, height=5)
         protect_box.pack(fill="x", padx=20, pady=(16, 0))
+
+        label(tr("Desempenho do próprio Game Mode"))
+        perf_opts = [("normal", tr("Normal")), ("light", tr("Leve (usa menos processador)")),
+                     ("minimal", tr("Mínimo (o mais leve)"))]
+        perf_opts = [(k, tr(t)) for k, t in perf_opts]
+        perf_var = tk.StringVar(value=label_of(perf_opts, self.settings["perf"].get("level", "normal")))
+        prow = tk.Frame(body, bg=BG)
+        prow.pack(fill="x", padx=20)
+        tk.Label(prow, text=tr("Uso de processador"), bg=BG, fg=TEXT, font=(FONT, 9)).pack(side="left", padx=(0, 14))
+        ttk.Combobox(prow, textvariable=perf_var, values=[t for _k, t in perf_opts], state="readonly",
+                     width=30, font=(FONT, 9)).pack(side="left")
+        tk.Label(body, text=tr("Leve e Mínimo olham o jogo e a tela com menos frequência: o overlay atualiza mais "
+                            "devagar e o programa gasta menos processador. Use se o PC estiver no limite."),
+                 bg=BG, fg=MUTED, font=(FONT, 8), justify="left", wraplength=470).pack(anchor="w", padx=20,
+                                                                                         pady=(4, 6))
+        start_vars["sounds"] = tk.BooleanVar(value=self.settings["sounds"])
+        start_vars["update_notice"] = tk.BooleanVar(value=self.settings["update_notice"])
+        check(tr("Bipe ao ligar e desligar o Game Mode"), start_vars["sounds"])
+        check(tr("Avisar quando o Game Mode for atualizado"), start_vars["update_notice"])
 
         label(tr("Acessibilidade"))
         lang_opts = [("auto", tr("Automático (igual ao Windows)")), ("en", "English"),
@@ -6314,6 +6487,8 @@ class App:
                 if not ok:
                     messagebox.showwarning(
                         tr("Opções"), tr("Não consegui mudar o início com o Windows:\n") + err, parent=win)
+            self.settings["perf"] = {"level": key_of(perf_opts, perf_var.get())}
+            set_perf(self.settings["perf"]["level"])
             self._apply_gpu_pref()
             new_lang, new_theme = key_of(lang_opts, lang_var.get()), key_of(theme_opts, theme_var.get())
             ui_changed = (new_lang, new_theme) != (cur_lang, cur_theme)
@@ -6341,6 +6516,7 @@ class App:
                 var.set(DEFAULT_SETTINGS[key])
             for key, var in start_vars.items():
                 var.set(DEFAULT_SETTINGS[key])
+            perf_var.set(label_of(perf_opts, "normal"))
             calm_box.set(DEFAULT_SETTINGS["calm"])
             protect_box.set(DEFAULT_SETTINGS["protect"])
 

@@ -1,14 +1,14 @@
-Version 2.5
-- Languages: English, Portuguese and Spanish. Pick one in the installer or in Options > Accessibility.
-- Light and dark themes, automatic (same as Windows) or your choice.
-- Steam and Epic Games: Options > Import from Steam / Epic adds your installed games as profiles.
+Version 2.6
+- A notice after every update: a window with what is new, plus a line in the notices list.
+- New game settings: keep the screen and PC awake while you play, and turn off fullscreen optimizations per game.
+- Game Mode's own performance: choose Normal, Light or Minimal CPU use. Beep and update notice can be switched off.
 
-Versão 2.5
-- Idiomas: inglês, português e espanhol. Escolha no instalador ou em Opções > Acessibilidade.
-- Tema claro e escuro, automático (igual ao Windows) ou à sua escolha.
-- Steam e Epic Games: Opções > Importar da Steam / Epic adiciona seus jogos instalados como perfis.
+Versão 2.6
+- Aviso depois de cada atualização: uma janela com as novidades e uma linha na lista de avisos.
+- Novas opções de jogo: manter a tela e o PC acordados enquanto você joga e desligar as otimizações de tela cheia por jogo.
+- Desempenho do próprio Game Mode: escolha uso de processador Normal, Leve ou Mínimo. Bipe e aviso de atualização podem ser desligados.
 
-Versión 2.5
-- Idiomas: inglés, portugués y español. Elige en el instalador o en Opciones > Accesibilidad.
-- Tema claro y oscuro, automático (igual que Windows) o a tu elección.
-- Steam y Epic Games: Opciones > Importar de Steam / Epic añade tus juegos instalados como perfiles.
+Versión 2.6
+- Aviso después de cada actualización: una ventana con las novedades y una línea en la lista de avisos.
+- Nuevas opciones de juego: mantener la pantalla y el PC despiertos mientras juegas y desactivar las optimizaciones de pantalla completa por juego.
+- Rendimiento del propio Game Mode: elige uso de procesador Normal, Ligero o Mínimo. El pitido y el aviso de actualización se pueden desactivar.

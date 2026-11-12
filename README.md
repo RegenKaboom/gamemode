@@ -9,6 +9,8 @@ A Windows app that makes games run smoother and shows useful information on scre
 - **Mods tab:** QoS, Movement Helper, brightness, shaders and Windows game tweaks, each with a backup and an Undo button.
 - **Languages:** English, Portuguese and Spanish (installer and Options > Accessibility).
 - **Themes:** light and dark, automatic (same as Windows) or your choice.
+- **Update notice:** after every update a window shows what is new (language of your choice).
+- **Performance:** Options > *Game Mode's own performance* lowers the program's own CPU use (Normal, Light, Minimal). Games can keep the screen awake and turn off fullscreen optimizations.
 - **Automatic updates:** checks GitHub Releases, verifies the SHA-256 of the installer, and keeps your settings.
 
 ## Files
@@ -37,7 +39,7 @@ A text with no row is shown as written, so a missing translation never breaks th
 
 Pushing to `main` runs the workflow: Nuitka compiles the program, NSIS builds `Instalar_GameMode_<version>.exe`
 and a GitHub Release `v<version>` is published with `latest.json`. The version comes from the `APP_VERSION`
-line of `gamemode_app.py` (two numbers, like `2.5`). Release notes come from `NOVIDADES.txt`.
+line of `gamemode_app.py` (two numbers, like `2.6`). Release notes come from `NOVIDADES.txt`.
 See `ATUALIZAR.txt` (Portuguese) for the step-by-step.
 
 The repository must be **public** for installed copies to download updates.
