@@ -1,14 +1,14 @@
-Version 2.6
-- A notice after every update: a window with what is new, plus a line in the notices list.
-- New game settings: keep the screen and PC awake while you play, and turn off fullscreen optimizations per game.
-- Game Mode's own performance: choose Normal, Light or Minimal CPU use. Beep and update notice can be switched off.
+Version 2.7
+- New look inspired by Lyre: side menu, bigger titles, rounded power button and Ctrl+K search.
+- 11 themes (Dark, Light, Midnight, OLED, Ocean, Forest, Violet, Rose, Amber, Emerald, Sakura) and accent colors, in Options > Appearance.
+- Icon in the Windows tray (next to the clock) with a right-click menu, and a new app icon.
 
-Versão 2.6
-- Aviso depois de cada atualização: uma janela com as novidades e uma linha na lista de avisos.
-- Novas opções de jogo: manter a tela e o PC acordados enquanto você joga e desligar as otimizações de tela cheia por jogo.
-- Desempenho do próprio Game Mode: escolha uso de processador Normal, Leve ou Mínimo. Bipe e aviso de atualização podem ser desligados.
+Versão 2.7
+- Visual novo inspirado no Lyre: menu lateral, títulos maiores, botão de ligar redondo e busca com Ctrl+K.
+- 11 temas (Escuro, Claro, Meia-noite, OLED, Oceano, Floresta, Violeta, Rosa, Âmbar, Esmeralda, Sakura) e cores de destaque, em Opções > Aparência.
+- Ícone na bandeja do Windows (perto do relógio) com menu do botão direito, e um ícone novo.
 
-Versión 2.6
-- Aviso después de cada actualización: una ventana con las novedades y una línea en la lista de avisos.
-- Nuevas opciones de juego: mantener la pantalla y el PC despiertos mientras juegas y desactivar las optimizaciones de pantalla completa por juego.
-- Rendimiento del propio Game Mode: elige uso de procesador Normal, Ligero o Mínimo. El pitido y el aviso de actualización se pueden desactivar.
+Versión 2.7
+- Nuevo aspecto inspirado en Lyre: menú lateral, títulos más grandes, botón de encendido redondo y búsqueda con Ctrl+K.
+- 11 temas (Oscuro, Claro, Medianoche, OLED, Océano, Bosque, Violeta, Rosa, Ámbar, Esmeralda, Sakura) y colores de acento, en Opciones > Apariencia.
+- Icono en la bandeja de Windows (junto al reloj) con menú de clic derecho, y un icono nuevo.

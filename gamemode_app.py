@@ -107,6 +107,11 @@ try:
 except Exception:
     gm_games = None
 
+try:
+    import gm_tray
+except Exception:          # bandeja do Windows é um extra: sem ela o programa funciona igual
+    gm_tray = None
+
 # --------------------------------------------------------------------------
 # Configurações
 # --------------------------------------------------------------------------
@@ -154,7 +159,7 @@ POLL_ACTIVE_SECONDS = 3.0    # jogo aberto (menos trabalho enquanto você joga)
 RETRIM_SECONDS = 60.0
 POLL_IDLE_SLOW_SECONDS = 5.0  # depois de 1 min esperando o jogo, olha menos vezes
 IDLE_SLOW_AFTER = 60.0
-APP_VERSION = "2.6 (update notice, performance settings)"
+APP_VERSION = "2.7 (new look, tray icon, new icon)"
 UPDATE_REPO = "RegenKaboom/gamemode"                  # onde as versões novas são publicadas (GitHub Releases)
 UPDATE_MANIFEST_URL = f"https://github.com/{UPDATE_REPO}/releases/latest/download/latest.json"
 UPDATE_PAGE = f"https://github.com/{UPDATE_REPO}/releases/latest"
@@ -189,13 +194,16 @@ DEFAULT_SETTINGS = {
     "hotkeys": {"gamemode": "none", "move": "none"},
     "gamebar_backup": "",        # como estava o Xbox Game Bar antes de desligar (JSON)
     "profiles_v": 0,
+    "tray_show": True,       # ícone na bandeja do Windows (perto do relógio)
+    "tray_close": True,      # fechar a janela deixa o programa na bandeja
+    "tray_tip": False,       # já mostrou o aviso de "continua na bandeja"
     "keep_awake": True,      # tela e PC acordados enquanto o jogo roda
     "sounds": True,          # bipe ao ligar/desligar o Game Mode
     "perf": {"level": "normal"},   # uso de processador do próprio programa: normal | light | minimal
     "fso_paths": [],         # exes que o programa mudou nas otimizações de tela cheia (para poder desfazer)
     "seen_version": "",      # última versão que abriu aqui (para avisar depois de atualizar)
     "update_notice": True,   # avisar quando o Game Mode for atualizado
-    "ui": {"lang": "", "theme": ""},    # "" = not chosen yet; then auto | en | pt | es / auto | dark | light
+    "ui": {"lang": "", "theme": "", "accent": ""},    # "" = not chosen yet; then auto | en | pt | es / auto | dark | light
     "updates": {"mode": "ask", "skip": "", "last_check": 0.0},
     "fnf": {"preset": "dfjk", "keys": ["d", "f", "j", "k"], "pos": "bl", "auto_reset": False,
             "hotkey_toggle": "none", "hotkey_reset": "none"},
@@ -565,6 +573,15 @@ def tune_self(low_power):
     else:
         set_priority(h, ABOVE_NORMAL_PRIORITY_CLASS)
         set_eco(h, "off")
+
+
+def app_icon_path():
+    """app.ico ao lado do programa (o instalador e o Nuitka levam o arquivo junto)."""
+    for base in (os.path.dirname(os.path.abspath(sys.argv[0])), os.path.dirname(os.path.abspath(__file__))):
+        path = os.path.join(base, "app.ico")
+        if os.path.isfile(path):
+            return path
+    return ""
 
 
 def whats_new_text():
@@ -2983,7 +3000,7 @@ class Engine(threading.Thread):
 # --------------------------------------------------------------------------
 
 _PAL = gm_i18n.palette() if gm_i18n is not None else {}
-_DARK_UI = (gm_i18n.theme() if gm_i18n is not None else "dark") != "light"
+_DARK_UI = not (gm_i18n.is_light() if gm_i18n is not None else False)
 
 
 def _pal(name, fallback):
@@ -3014,8 +3031,20 @@ BTN_BG = _pal("BTN_BG", "#12131a")
 GLOW1 = _pal("GLOW1", "#172340")
 GLOW2 = _pal("GLOW2", "#1a2a4d")
 GLOW3 = _pal("GLOW3", "#203764")
+ON_ACCENT = _pal("ON_ACCENT", "#ffffff")        # texto em cima de botão com a cor de destaque
 
 FONT = "Segoe UI"
+
+
+def _pick_font(root):
+    """Windows 11 has 'Segoe UI Variable Text', a bit softer than Segoe UI (the look Lyre uses)."""
+    global FONT
+    try:
+        import tkinter.font as tkfont
+        if "Segoe UI Variable Text" in tkfont.families(root):
+            FONT = "Segoe UI Variable Text"
+    except Exception:
+        pass
 
 LEVEL_COLOR = {"ok": GREEN, "warn": WARN, "info": MUTED}
 
@@ -3087,7 +3116,7 @@ class AppListEditor(tk.Frame):
         box.pack(fill="x")
         self.listbox = tk.Listbox(
             box, height=height, selectmode="extended", bg=PANEL, fg=TEXT,
-            selectbackground=ACCENT, selectforeground="#ffffff", relief="flat", bd=0,
+            selectbackground=ACCENT, selectforeground=ON_ACCENT, relief="flat", bd=0,
             highlightthickness=0, font=("Consolas", 10), activestyle="none",
             exportselection=False)
         bar = ttk.Scrollbar(box, orient="vertical", command=self.listbox.yview)
@@ -3102,7 +3131,7 @@ class AppListEditor(tk.Frame):
         self.combo = ttk.Combobox(row, textvariable=self.var, font=(FONT, 9))
         self.combo.pack(side="left", fill="x", expand=True, ipady=2)
         self.combo.bind("<Return>", lambda _e: self.add())
-        self._button(row, tr("Adicionar"), self.add, ACCENT, "#ffffff").pack(side="left", padx=(8, 0))
+        self._button(row, tr("Adicionar"), self.add, ACCENT, ON_ACCENT).pack(side="left", padx=(8, 0))
         self._button(row, tr("Remover selecionados"), self.remove, PANEL, TEXT).pack(
             side="left", padx=(8, 0))
         self._button(row, "\u21BB", self.refresh_choices, PANEL, TEXT, padx=9).pack(
@@ -3302,14 +3331,23 @@ class App:
         self._upd_result, self._upd_ready, self._upd_status = None, None, None
         self._upd_notified = set()
         self._fnf_warned = False
+        self._tray = None                   # ícone da bandeja (gm_tray)
+        self._tray_tip_last = ""
 
         root.title("Game Mode")
+        _pick_font(root)
+        try:
+            icon_file = app_icon_path()
+            if icon_file:
+                root.iconbitmap(default=icon_file)
+        except Exception:
+            pass
         sw, sh = root.winfo_screenwidth(), root.winfo_screenheight()
         w, h, x, y = fit_geometry(self.settings["window"], sw, sh)
         root.geometry(f"{w}x{h}+{x}+{y}")
-        root.minsize(min(960, w), min(680, h))
+        root.minsize(min(1100, w), min(680, h))
         root.configure(bg=BG)
-        root.protocol("WM_DELETE_WINDOW", self.on_close)
+        root.protocol("WM_DELETE_WINDOW", self._on_close_button)
         root.bind("<Unmap>", self._on_unmap)
         root.bind("<Map>", self._on_map)
         self._dark_titlebar()
@@ -3319,7 +3357,7 @@ class App:
         self._tune()
         self.refresh()
         if start_minimized or self.settings["start_minimized"]:
-            root.after(150, root.iconify)
+            root.after(150, self._hide_at_start)
         else:
             self._bring_to_front()
         if gm_mods is not None and self.settings["window"].get("tab") == "mods":
@@ -3379,44 +3417,64 @@ class App:
                   foreground=[("readonly", TEXT), ("disabled", MUTED)],
                   selectbackground=[("readonly", PANEL)], selectforeground=[("readonly", TEXT)])
         for opt, val in (("background", PANEL), ("foreground", TEXT),
-                         ("selectBackground", ACCENT), ("selectForeground", "#ffffff")):
+                         ("selectBackground", ACCENT), ("selectForeground", ON_ACCENT)):
             self.root.option_add("*TCombobox*Listbox." + opt, val)
 
     # ---- montagem da janela -----------------------------------------
 
     def _build(self):
         root = self.root
-        root.grid_columnconfigure(0, weight=1)
-        root.grid_rowconfigure(1, weight=1)
+        root.grid_columnconfigure(1, weight=1)
+        root.grid_rowconfigure(0, weight=1)
 
-        header = tk.Frame(root, bg=BG)
-        header.grid(row=0, column=0, sticky="ew", padx=22, pady=(16, 12))
-        tk.Label(header, text="\U0001F3AE", bg=ICON_BG, fg=ACCENT,
-                 font=("Segoe UI Emoji", 14), width=3).pack(side="left")
-        titles = tk.Frame(header, bg=BG)
-        titles.pack(side="left", padx=12)
-        tk.Label(titles, text="Game Mode", bg=BG, fg=TEXT,
-                 font=(FONT, 14, "bold")).pack(anchor="w")
-        tk.Label(titles, text=tr("Ligue e jogue. O resto é automático."), bg=BG, fg=MUTED,
-                 font=(FONT, 9)).pack(anchor="w")
+        nav = tk.Frame(root, bg=SIDE, width=214)
+        nav.grid(row=0, column=0, sticky="ns")
+        nav.pack_propagate(False)
+        tk.Frame(nav, bg=BORDER, width=1).pack(side="right", fill="y")
+        inner = tk.Frame(nav, bg=SIDE)
+        inner.pack(side="left", fill="both", expand=True)
 
-        tabs = tk.Frame(header, bg=BG)
-        tabs.pack(side="left", padx=(26, 0))
+        brand = tk.Frame(inner, bg=SIDE)
+        brand.pack(fill="x", padx=18, pady=(24, 22))
+        tk.Label(brand, text="\U0001F3AE", bg=ICON_BG, fg=ACCENT, font=("Segoe UI Emoji", 14),
+                 width=3).pack(side="left")
+        names = tk.Frame(brand, bg=SIDE)
+        names.pack(side="left", padx=12)
+        tk.Label(names, text="Game Mode", bg=SIDE, fg=TEXT, font=(FONT, 13, "bold")).pack(anchor="w")
+        tk.Label(names, text=tr('Versão {}').format(APP_VERSION.split()[0]), bg=SIDE, fg=MUTED,
+                 font=(FONT, 8)).pack(anchor="w")
+
         self.tab_btn = {}
-        for key, text in (("game", "Game Mode"), ("mods", "Mods")):
-            b = tk.Label(tabs, text=text, bg=BG, fg=MUTED, font=(FONT, 10, "bold"),
-                         padx=16, pady=7, cursor="hand2")
-            b.pack(side="left", padx=2)
-            b.bind("<Button-1>", lambda _e, k=key: self.select_tab(k))
-            self.tab_btn[key] = b
+        for key, icon, text in (("game", "\u23FB", "Game Mode"), ("mods", "\U0001F6E0", "Mods")):
+            self.tab_btn[key] = self._nav_item(inner, icon, text, lambda k=key: self.select_tab(k))
 
-        tk.Button(header, text=tr("\u2699  Opções"), command=self.open_options, bg=PANEL, fg=TEXT,
-                  activebackground=BORDER, activeforeground=TEXT, relief="flat", bd=0,
-                  padx=14, pady=6, font=(FONT, 9), cursor="hand2").pack(side="right")
-        self.chip = tk.Label(header, bg=PANEL, fg=MUTED, font=(FONT, 9), padx=12, pady=6)
-        self.chip.pack(side="right", padx=10)
+        bottom = tk.Frame(inner, bg=SIDE)
+        bottom.pack(side="bottom", fill="x", pady=(0, 16))
+        self.chip = tk.Label(bottom, bg=PANEL, fg=MUTED, font=(FONT, 9), padx=12, pady=8,
+                             wraplength=168, justify="left", anchor="w")
+        self.chip.pack(fill="x", padx=16, pady=(0, 10))
+        self._nav_item(bottom, "\u2699", tr("Opções"), self.open_options)
 
-        content = tk.Frame(root, bg=BG)
+        main = tk.Frame(root, bg=BG)
+        main.grid(row=0, column=1, sticky="nsew")
+        main.grid_columnconfigure(0, weight=1)
+        main.grid_rowconfigure(1, weight=1)
+
+        head = tk.Frame(main, bg=BG)
+        head.grid(row=0, column=0, sticky="ew", padx=22, pady=(22, 16))
+        titles = tk.Frame(head, bg=BG)
+        titles.pack(side="left")
+        self.page_title = tk.Label(titles, bg=BG, fg=TEXT, font=(FONT, 19, "bold"))
+        self.page_title.pack(anchor="w")
+        self.page_sub = tk.Label(titles, bg=BG, fg=MUTED, font=(FONT, 10))
+        self.page_sub.pack(anchor="w", pady=(2, 0))
+        search = tk.Label(head, text="\U0001F50D  Buscar...      Ctrl+K", bg=PANEL, fg=MUTED,
+                          font=(FONT, 9), padx=16, pady=9, cursor="hand2")
+        search.pack(side="right")
+        search.bind("<Button-1>", lambda _e: self.open_palette())
+        root.bind("<Control-k>", lambda _e: self.open_palette())
+
+        content = tk.Frame(main, bg=BG)
         content.grid(row=1, column=0, sticky="nsew")
         content.grid_rowconfigure(0, weight=1)
         content.grid_columnconfigure(0, weight=1)
@@ -3428,16 +3486,123 @@ class App:
         self._build_mods_page(self.page_mods)
         self.select_tab("game")
 
+    def _nav_item(self, parent, icon, text, command):
+        """One entry of the left menu: colored bar + icon + name; it lights up on hover."""
+        row = tk.Frame(parent, bg=SIDE, cursor="hand2")
+        row.pack(fill="x", padx=10, pady=2)
+        bar = tk.Frame(row, bg=SIDE, width=3)
+        bar.pack(side="left", fill="y")
+        ic = tk.Label(row, text=icon, bg=SIDE, fg=MUTED, font=("Segoe UI Symbol", 12), width=3)
+        ic.pack(side="left", pady=9)
+        lb = tk.Label(row, text=text, bg=SIDE, fg=MUTED, font=(FONT, 10, "bold"), anchor="w")
+        lb.pack(side="left", fill="x", expand=True)
+        item = {"row": row, "bar": bar, "icon": ic, "label": lb, "active": False}
+        for w in (row, ic, lb):
+            w.bind("<Button-1>", lambda _e: command())
+            w.bind("<Enter>", lambda _e, it=item: self._nav_paint(it, True))
+            w.bind("<Leave>", lambda _e, it=item: self._nav_paint(it, False))
+        return item
+
+    def _nav_paint(self, item, hover=False):
+        on = item["active"]
+        bg = PANEL if (on or hover) else SIDE
+        for key in ("row", "icon", "label"):
+            item[key].config(bg=bg)
+        item["bar"].config(bg=ACCENT if on else bg)
+        item["icon"].config(fg=ACCENT if on else (TEXT if hover else MUTED))
+        item["label"].config(fg=TEXT if (on or hover) else MUTED)
+
     def select_tab(self, key):
         self.tab = key
-        for k, b in self.tab_btn.items():
-            b.config(fg=TEXT if k == key else MUTED, bg=PANEL if k == key else BG)
+        for k, item in self.tab_btn.items():
+            item["active"] = (k == key)
+            self._nav_paint(item)
+        titles = {"game": ("Game Mode", tr("Ligue e jogue. O resto é automático.")),
+                  "mods": ("Mods", tr("Ajustes extras. Cada cartão tem uma engrenagem para configurar."))}
+        title, sub = titles[key]
+        self.page_title.config(text=title)
+        self.page_sub.config(text=sub)
         {"game": self.page_game, "mods": self.page_mods}[key].tkraise()
         if key == "mods":
             try:
                 self.refresh_mod_badges()
             except Exception:
                 pass  # os selos são só informativos: nunca podem impedir o programa de abrir
+
+    def open_palette(self):
+        """Ctrl+K: type a few letters and jump to a page or run an action."""
+        old = getattr(self, "_palette", None)
+        try:
+            if old is not None and old.winfo_exists():
+                old.lift()
+                return
+        except tk.TclError:
+            pass
+        items = [(tr("Ir para Game Mode"), lambda: self.select_tab("game")),
+                 (tr("Ir para Mods"), lambda: self.select_tab("mods")),
+                 (tr("Abrir Opções"), self.open_options),
+                 (tr("Ligar ou desligar o Game Mode"), self.toggle),
+                 (tr("Restaurar tudo agora"), self.panic_restore),
+                 (tr("Procurar atualização agora"), lambda: self._upd_check(manual=True))]
+        win = tk.Toplevel(self.root)
+        self._palette = win
+        win.title("Game Mode")
+        win.configure(bg=BORDER)
+        win.resizable(False, False)
+        win.attributes("-topmost", True)
+        box = tk.Frame(win, bg=CARD)
+        box.pack(padx=1, pady=1)
+        var = tk.StringVar()
+        entry = tk.Entry(box, textvariable=var, bg=PANEL, fg=TEXT, insertbackground=TEXT, relief="flat",
+                         font=(FONT, 12))
+        entry.pack(fill="x", padx=14, pady=(14, 8), ipady=7)
+        lb = tk.Listbox(box, bg=CARD, fg=TEXT, selectbackground=SEL, selectforeground=TEXT, relief="flat",
+                        bd=0, highlightthickness=0, font=(FONT, 10), activestyle="none", width=48, height=6)
+        lb.pack(padx=14, pady=(0, 14))
+        shown = []
+
+        def refill(*_args):
+            query = var.get().strip().lower()
+            lb.delete(0, "end")
+            shown.clear()
+            for text, command in items:
+                if query in text.lower():
+                    shown.append(command)
+                    lb.insert("end", "   " + text)
+            if shown:
+                lb.selection_set(0)
+
+        def run(_event=None):
+            picked = lb.curselection()
+            if not picked:
+                return "break"
+            command = shown[picked[0]]
+            win.destroy()
+            self.root.after(60, command)
+            return "break"
+
+        def move(step):
+            if not shown:
+                return "break"
+            now = lb.curselection()[0] if lb.curselection() else 0
+            nxt = max(0, min(len(shown) - 1, now + step))
+            lb.selection_clear(0, "end")
+            lb.selection_set(nxt)
+            lb.see(nxt)
+            return "break"
+
+        var.trace_add("write", refill)
+        entry.bind("<Return>", run)
+        entry.bind("<Escape>", lambda _e: win.destroy())
+        entry.bind("<Down>", lambda _e: move(1))
+        entry.bind("<Up>", lambda _e: move(-1))
+        lb.bind("<Double-Button-1>", run)
+        refill()
+        win.update_idletasks()
+        x = self.root.winfo_rootx() + max(0, (self.root.winfo_width() - win.winfo_width()) // 2)
+        y = self.root.winfo_rooty() + 110
+        win.geometry(f"+{x}+{y}")
+        entry.focus_force()
 
     # ---- aba Game Mode ----------------------------------------------
 
@@ -3536,13 +3701,14 @@ class App:
         tile = tk.Frame(parent, bg=CARD, highlightthickness=1, highlightbackground=BORDER)
         tile.grid(row=0, column=col, sticky="nsew",
                   padx=(0 if col == 0 else 7, 0 if col == 2 else 7))
-        tk.Frame(tile, bg=accent, height=3).pack(fill="x")
-        tk.Label(tile, text=title, bg=CARD, fg=MUTED, font=(FONT, 8, "bold")).pack(
-            anchor="w", padx=16, pady=(12, 0))
-        value = tk.Label(tile, text="0", bg=CARD, fg=accent, font=(FONT, 28, "bold"))
-        value.pack(anchor="w", padx=16)
+        top = tk.Frame(tile, bg=CARD)
+        top.pack(fill="x", padx=18, pady=(16, 0))
+        tk.Label(top, text="\u25CF", bg=CARD, fg=accent, font=(FONT, 8)).pack(side="left")
+        tk.Label(top, text=title, bg=CARD, fg=MUTED, font=(FONT, 8, "bold")).pack(side="left", padx=(6, 0))
+        value = tk.Label(tile, text="0", bg=CARD, fg=accent, font=(FONT, 30, "bold"))
+        value.pack(anchor="w", padx=18, pady=(2, 0))
         sub = tk.Label(tile, text=" ", bg=CARD, fg=MUTED, font=(FONT, 9))
-        sub.pack(anchor="w", padx=16, pady=(0, 14))
+        sub.pack(anchor="w", padx=18, pady=(0, 16))
         return value, sub, accent
 
     def _set_tile(self, tile, value, sub, dim=False):
@@ -3561,10 +3727,10 @@ class App:
         else:
             card.grid(row=row, column=col, sticky="nsew", pady=(0, 14),
                       padx=(0, 8) if col == 0 else (8, 0))
-        tk.Frame(card, bg=accent, height=3).pack(fill="x")
         head = tk.Frame(card, bg=CARD)
-        head.pack(fill="x", padx=16, pady=(12, 0))
-        tk.Label(head, text=title, bg=CARD, fg=TEXT, font=(FONT, 11, "bold")).pack(side="left")
+        head.pack(fill="x", padx=18, pady=(16, 0))
+        tk.Label(head, text="\u25CF", bg=CARD, fg=accent, font=(FONT, 9)).pack(side="left", padx=(0, 8))
+        tk.Label(head, text=title, bg=CARD, fg=TEXT, font=(FONT, 12, "bold")).pack(side="left")
         gear_btn = tk.Button(head, text="\u2699", bg=CARD, fg=MUTED, activebackground=CARD,
                              activeforeground=TEXT, relief="flat", bd=0, padx=6, pady=0,
                              font=("Segoe UI Symbol", 13), cursor="hand2")
@@ -3573,12 +3739,12 @@ class App:
         badge.pack(side="right", padx=(0, 4))
         tk.Label(card, text=desc, bg=CARD, fg=MUTED, font=(FONT, 9),
                  wraplength=900 if span == 2 else 430, justify="left").pack(
-                     anchor="w", padx=16, pady=(4, 8))
+                     anchor="w", padx=18, pady=(4, 8))
         body = tk.Frame(card, bg=CARD)
-        body.pack(fill="x", padx=16)
+        body.pack(fill="x", padx=18)
         status = tk.Label(card, text="", bg=CARD, fg=MUTED, font=(FONT, 9),
                           wraplength=900 if span == 2 else 430, justify="left", anchor="w")
-        status.pack(fill="x", padx=16, pady=(8, 14))
+        status.pack(fill="x", padx=18, pady=(8, 14))
         settings = tk.Frame(card, bg=CARD)
         state = {"open": False}
 
@@ -3587,7 +3753,7 @@ class App:
                 settings.pack_forget()
                 gear_btn.config(fg=MUTED)
             else:
-                settings.pack(fill="x", padx=16, pady=(10, 0), before=status)
+                settings.pack(fill="x", padx=18, pady=(10, 0), before=status)
                 gear_btn.config(fg=ACCENT)
             state["open"] = not state["open"]
 
@@ -3618,8 +3784,8 @@ class App:
 
     def _btn(self, parent, text, command, primary=False):
         return tk.Button(parent, text=text, command=command, bg=ACCENT if primary else PANEL,
-                         fg="white" if primary else TEXT, activebackground=ACCENT_HOVER if primary else BORDER,
-                         activeforeground="white" if primary else TEXT, relief="flat", bd=0,
+                         fg=ON_ACCENT if primary else TEXT, activebackground=ACCENT_HOVER if primary else BORDER,
+                         activeforeground=ON_ACCENT if primary else TEXT, relief="flat", bd=0,
                          padx=16, pady=7, font=(FONT, 9, "bold" if primary else "normal"),
                          cursor="hand2")
 
@@ -4063,20 +4229,21 @@ class App:
         self._drawn = state
         c = self.canvas
         c.delete("all")
-
+        cx, cy, r = 130, 108, 66
         if on:
-            for pad, color in ((20, GLOW1), (13, GLOW2), (7, GLOW3)):
-                rounded_rect(c, 40 - pad, 20 - pad, 220 + pad, 200 + pad, 40 + pad,
-                             outline=color, fill="", width=2)
+            for pad, color in ((26, GLOW1), (18, GLOW2), (10, GLOW3)):
+                c.create_oval(cx - r - pad, cy - r - pad, cx + r + pad, cy + r + pad,
+                              outline=color, fill="", width=3)
         ring = ACCENT if on else (OFF if self.hover else BORDER)
         icon = ACCENT if on else (ICON_HOVER if self.hover else ICON)
-        rounded_rect(c, 40, 20, 220, 200, 40, outline=ring, fill=BTN_BG, width=3)
-        c.create_arc(100, 82, 160, 142, start=125, extent=290, style="arc",
+        c.create_oval(cx - r, cy - r, cx + r, cy + r, outline=ring, fill=BTN_BG, width=4)
+        c.create_arc(cx - 30, cy - 30, cx + 30, cy + 30, start=125, extent=290, style="arc",
                      outline=icon, width=5)
-        c.create_line(130, 74, 130, 112, fill=icon, width=5, capstyle="round")
+        c.create_line(cx, cy - 38, cx, cy - 2, fill=icon, width=5, capstyle="round")
         label = tr("RESTAURANDO") if busy else (tr("LIGADO") if on else tr("DESLIGADO"))
-        c.create_text(130, 228, text=label, fill=ACCENT if on else ICON_HOVER,
-                      font=(FONT, 11, "bold"))
+        c.create_text(cx, 212, text=label, fill=ACCENT if on else ICON_HOVER, font=(FONT, 11, "bold"))
+        if not on and not busy:
+            c.create_text(cx, 234, text=tr("Toque para ligar"), fill=MUTED, font=(FONT, 9))
 
     def toggle(self):
         if self.stopping:
@@ -4181,6 +4348,11 @@ class App:
                 tr('{} está aberto, mas o Windows não permitiu o boost no jogo. Os outros apps foram acalmados.').format(title), WARN, tr('● {} · sem boost').format(title), WARN)
         self._cfg(self.status, text=status, fg=status_color)
         self._cfg(self.chip, text=chip, fg=chip_color)
+        if self._tray is not None:
+            tip = self._tray_tip()
+            if tip != self._tray_tip_last:
+                self._tray_tip_last = tip
+                self._tray.set_tooltip(tip)
 
         eco = "ligado" if self.settings["eco"] else "desligado"
         mem = (tr("todos os apps") if self.settings["trim_all"] else tr("só os da lista")) \
@@ -4266,6 +4438,7 @@ class App:
         if self.settings["autostart_mode"] and not self.is_on() and not self.stopping:
             self.toggle()
             self.add_log("info", tr("Game Mode ligado automaticamente ao abrir."))
+        self._tray_apply()
         try:
             self._after_update_notice()
         except Exception:
@@ -4300,8 +4473,8 @@ class App:
             tk.Label(box, text=tr("Novidades"), bg=BG, fg=ACCENT, font=(FONT, 9, "bold")).pack(anchor="w")
             tk.Label(box, text=notes, bg=BG, fg=TEXT, font=(FONT, 9), justify="left",
                      wraplength=400).pack(anchor="w", pady=(4, 0))
-        tk.Button(box, text="OK", command=win.destroy, bg=ACCENT, fg="white", activebackground=ACCENT_HOVER,
-                  activeforeground="white", relief="flat", bd=0, padx=26, pady=7, font=(FONT, 9, "bold"),
+        tk.Button(box, text="OK", command=win.destroy, bg=ACCENT, fg=ON_ACCENT, activebackground=ACCENT_HOVER,
+                  activeforeground=ON_ACCENT, relief="flat", bd=0, padx=26, pady=7, font=(FONT, 9, "bold"),
                   cursor="hand2").pack(anchor="e", pady=(16, 0))
         win.update_idletasks()
         x = self.root.winfo_rootx() + max(0, (self.root.winfo_width() - win.winfo_width()) // 2)
@@ -4571,7 +4744,7 @@ class App:
                   activebackground=BORDER, activeforeground=TEXT, relief="flat", bd=0, padx=12,
                   pady=5, font=(FONT, 9), cursor="hand2").pack(side="left", padx=(8, 0))
         tk.Button(presets, text=tr("Testar brilho"), command=self.open_brightness_test, bg=ACCENT,
-                  fg="white", activebackground=ACCENT_HOVER, activeforeground="white", relief="flat",
+                  fg=ON_ACCENT, activebackground=ACCENT_HOVER, activeforeground=ON_ACCENT, relief="flat",
                   bd=0, padx=12, pady=5, font=(FONT, 9, "bold"), cursor="hand2").pack(
                       side="left", padx=(8, 0))
 
@@ -4709,7 +4882,7 @@ class App:
         current = self.settings["shader"]["preset"]
         for name, btn in self._shader_buttons.items():
             btn.config(bg=ACCENT if name == current else PANEL,
-                       fg="white" if name == current else TEXT)
+                       fg=ON_ACCENT if name == current else TEXT)
         self.shader_desc.config(text=SHADER_PRESETS[current][0] if current in SHADER_PRESETS else "")
 
     def _shader_set_values(self, values):
@@ -5491,7 +5664,7 @@ class App:
         current = self.settings["overlay"]["look"]
         for name, btn in self._look_buttons.items():
             btn.config(bg=ACCENT if name == current else PANEL,
-                       fg="white" if name == current else TEXT)
+                       fg=ON_ACCENT if name == current else TEXT)
         self.hud_desc.config(text=HUD_LOOKS[current][0] if current in HUD_LOOKS else "")
 
     def _hud_look(self, name):
@@ -5663,8 +5836,8 @@ class App:
 
         bar = tk.Frame(win, bg=BG)
         bar.pack(side="bottom", fill="x", padx=22, pady=16)
-        start_btn = tk.Button(bar, text=tr("Iniciar"), command=start, bg=ACCENT, fg="white",
-                              activebackground=ACCENT_HOVER, activeforeground="white", relief="flat",
+        start_btn = tk.Button(bar, text=tr("Iniciar"), command=start, bg=ACCENT, fg=ON_ACCENT,
+                              activebackground=ACCENT_HOVER, activeforeground=ON_ACCENT, relief="flat",
                               bd=0, padx=20, pady=7, font=(FONT, 9, "bold"), cursor="hand2")
         start_btn.pack(side="left")
         use_btn = tk.Button(bar, text=tr("Usar o melhor"), command=use, bg=PANEL, fg=TEXT,
@@ -5975,7 +6148,7 @@ class App:
 
         def small_button(parent, text, command, primary=False):
             return tk.Button(parent, text=text, command=command, bg=ACCENT if primary else PANEL,
-                             fg="white" if primary else TEXT, activebackground=BORDER,
+                             fg=ON_ACCENT if primary else TEXT, activebackground=BORDER,
                              activeforeground=TEXT, relief="flat", bd=0, padx=14, pady=6,
                              font=(FONT, 9, "bold" if primary else "normal"), cursor="hand2")
 
@@ -5996,7 +6169,7 @@ class App:
             frame = tk.Frame(parent, bg=PANEL)
             frame.grid(row=row, column=col, sticky="nsew")
             lb = tk.Listbox(frame, selectmode="extended", bg=PANEL, fg=TEXT,
-                            selectbackground=ACCENT, selectforeground="#ffffff", relief="flat",
+                            selectbackground=ACCENT, selectforeground=ON_ACCENT, relief="flat",
                             bd=0, highlightthickness=0, font=("Consolas", 10), activestyle="none",
                             exportselection=False)
             bar = ttk.Scrollbar(frame, orient="vertical", command=lb.yview)
@@ -6311,7 +6484,7 @@ class App:
                     box = tk.Frame(dlg, bg=PANEL)
                     box.pack(fill="both", expand=True, padx=18)
                     lb = tk.Listbox(box, selectmode="extended", bg=PANEL, fg=TEXT, selectbackground=ACCENT,
-                                    selectforeground="#ffffff", relief="flat", bd=0, highlightthickness=0,
+                                    selectforeground=ON_ACCENT, relief="flat", bd=0, highlightthickness=0,
                                     font=(FONT, 10), activestyle="none", exportselection=False)
                     sb = ttk.Scrollbar(box, orient="vertical", command=lb.yview)
                     lb.configure(yscrollcommand=sb.set)
@@ -6332,8 +6505,8 @@ class App:
                                                 parent=dlg)
                         dlg.destroy()
 
-                    tk.Button(foot, text=tr("Adicionar selecionados"), command=add_selected, bg=ACCENT, fg="white",
-                              activebackground=ACCENT_HOVER, activeforeground="white", relief="flat", bd=0,
+                    tk.Button(foot, text=tr("Adicionar selecionados"), command=add_selected, bg=ACCENT, fg=ON_ACCENT,
+                              activebackground=ACCENT_HOVER, activeforeground=ON_ACCENT, relief="flat", bd=0,
                               padx=18, pady=7, font=(FONT, 9, "bold"), cursor="hand2").pack(side="right")
                     tk.Button(foot, text=tr("Fechar"), command=dlg.destroy, bg=PANEL, fg=TEXT,
                               activebackground=BORDER, activeforeground=TEXT, relief="flat", bd=0,
@@ -6432,24 +6605,81 @@ class App:
         check(tr("Bipe ao ligar e desligar o Game Mode"), start_vars["sounds"])
         check(tr("Avisar quando o Game Mode for atualizado"), start_vars["update_notice"])
 
+        label(tr("Bandeja do Windows"))
+        start_vars["tray_show"] = tk.BooleanVar(value=self.settings["tray_show"])
+        start_vars["tray_close"] = tk.BooleanVar(value=self.settings["tray_close"])
+        check(tr("Mostrar o ícone na bandeja do Windows"), start_vars["tray_show"])
+        check(tr("Fechar a janela deixa o Game Mode na bandeja (para sair de vez, use o ícone)"),
+              start_vars["tray_close"])
+
         label(tr("Acessibilidade"))
         lang_opts = [("auto", tr("Automático (igual ao Windows)")), ("en", "English"),
                      ("pt", "Português"), ("es", "Español")]
-        theme_opts = [("auto", tr("Automático (igual ao Windows)")), ("dark", tr("Tema escuro")),
-                      ("light", tr("Tema claro"))]
         cur_lang, cur_theme = gm_i18n.choices() if gm_i18n is not None else ("auto", "dark")
+        cur_accent = gm_i18n.accent_choice() if gm_i18n is not None else ""
         lang_var = tk.StringVar(value=label_of(lang_opts, cur_lang))
-        theme_var = tk.StringVar(value=label_of(theme_opts, cur_theme))
         acc = tk.Frame(body, bg=BG)
         acc.pack(fill="x", padx=20)
-        for i, (text, var, opts) in enumerate(((tr("Idioma"), lang_var, lang_opts),
-                                               (tr("Tema"), theme_var, theme_opts))):
-            tk.Label(acc, text=text, bg=BG, fg=TEXT, font=(FONT, 9)).grid(row=i, column=0, sticky="w",
-                                                                        pady=3, padx=(0, 14))
-            ttk.Combobox(acc, textvariable=var, values=[t for _k, t in opts], state="readonly", width=30,
-                         font=(FONT, 9)).grid(row=i, column=1, sticky="w", pady=3)
+        tk.Label(acc, text=tr("Idioma"), bg=BG, fg=TEXT, font=(FONT, 9)).grid(row=0, column=0, sticky="w",
+                                                                             pady=3, padx=(0, 14))
+        ttk.Combobox(acc, textvariable=lang_var, values=[t for _k, t in lang_opts], state="readonly",
+                     width=30, font=(FONT, 9)).grid(row=0, column=1, sticky="w", pady=3)
+
+        label(tr("Aparência"))
+        theme_names = [("auto", tr("Automático (igual ao Windows)")), ("dark", tr("Escuro")), ("light", tr("Claro")),
+                       ("midnight", tr("Meia-noite")), ("oled", tr("OLED")), ("ocean", tr("Oceano")),
+                       ("forest", tr("Floresta")), ("violet", tr("Violeta")), ("rose", tr("Rosa")),
+                       ("amber", tr("Âmbar")), ("emerald", tr("Esmeralda")), ("sakura", tr("Sakura"))]
+        theme_pick = tk.StringVar(value=cur_theme)
+        accent_pick = tk.StringVar(value=cur_accent)
+        gal = tk.Frame(body, bg=BG)
+        gal.pack(fill="x", padx=20)
+        theme_cards = {}
+
+        def paint_cards():
+            for name, cv in theme_cards.items():
+                cv.config(highlightbackground=ACCENT if theme_pick.get() == name else BORDER)
+
+        for i, (name, text) in enumerate(theme_names):
+            look = gm_i18n.palette_for(gm_i18n.system_theme() if name == "auto" else name)
+            cv = tk.Canvas(gal, width=124, height=76, bg=look["BG"], highlightthickness=2,
+                           highlightbackground=BORDER, cursor="hand2")
+            cv.grid(row=i // 4 * 2, column=i % 4, padx=(0, 10))
+            cv.create_rectangle(0, 0, 28, 76, fill=look["SIDE"], outline="")
+            cv.create_rectangle(38, 10, 114, 34, fill=look["CARD"], outline=look["BORDER"])
+            cv.create_rectangle(38, 44, 78, 54, fill=look["ACCENT"], outline="")
+            cv.create_rectangle(38, 60, 104, 65, fill=look["MUTED"], outline="")
+            cv.bind("<Button-1>", lambda _e, n=name: (theme_pick.set(n), paint_cards()))
+            tk.Label(gal, text=text, bg=BG, fg=MUTED, font=(FONT, 8), anchor="w", wraplength=124,
+                     justify="left").grid(row=i // 4 * 2 + 1, column=i % 4, sticky="w", pady=(3, 12))
+            theme_cards[name] = cv
+        paint_cards()
+
+        tk.Label(body, text=tr("Cor de destaque"), bg=BG, fg=TEXT, font=(FONT, 9)).pack(anchor="w", padx=20,
+                                                                                     pady=(0, 6))
+        arow = tk.Frame(body, bg=BG)
+        arow.pack(anchor="w", padx=20)
+        swatches = {}
+
+        def paint_swatches():
+            for hexv, cv in swatches.items():
+                cv.config(highlightbackground=TEXT if accent_pick.get() == hexv else BG)
+
+        for hexv in (gm_i18n.ACCENT_CHOICES if gm_i18n is not None else ("",)):
+            if hexv:
+                cv = tk.Canvas(arow, width=30, height=30, bg=BG, highlightthickness=2,
+                               highlightbackground=BG, cursor="hand2")
+                cv.create_oval(4, 4, 26, 26, fill=hexv, outline="")
+            else:
+                cv = tk.Canvas(arow, width=56, height=30, bg=BG, highlightthickness=2,
+                               highlightbackground=BG, cursor="hand2")
+                cv.create_text(28, 15, text=tr("Tema"), fill=MUTED, font=(FONT, 9))
+            cv.pack(side="left", padx=(0, 6))
+            cv.bind("<Button-1>", lambda _e, h=hexv: (accent_pick.set(h), paint_swatches()))
+            swatches[hexv] = cv
+        paint_swatches()
         tk.Label(body, text=tr("O idioma e o tema só mudam depois de reiniciar o Game Mode."), bg=BG, fg=MUTED,
-                 font=(FONT, 8)).pack(anchor="w", padx=20, pady=(4, 0))
+                 font=(FONT, 8)).pack(anchor="w", padx=20, pady=(8, 0))
 
         label(tr("Ferramentas"))
         tools = tk.Frame(body, bg=BG)
@@ -6489,10 +6719,11 @@ class App:
                         tr("Opções"), tr("Não consegui mudar o início com o Windows:\n") + err, parent=win)
             self.settings["perf"] = {"level": key_of(perf_opts, perf_var.get())}
             set_perf(self.settings["perf"]["level"])
+            self._tray_apply()
             self._apply_gpu_pref()
-            new_lang, new_theme = key_of(lang_opts, lang_var.get()), key_of(theme_opts, theme_var.get())
-            ui_changed = (new_lang, new_theme) != (cur_lang, cur_theme)
-            self.settings["ui"] = {"lang": new_lang, "theme": new_theme}
+            new_lang, new_theme, new_accent = key_of(lang_opts, lang_var.get()), theme_pick.get(), accent_pick.get()
+            ui_changed = (new_lang, new_theme, new_accent) != (cur_lang, cur_theme, cur_accent)
+            self.settings["ui"] = {"lang": new_lang, "theme": new_theme, "accent": new_accent}
             save_settings(self.settings)
             win.destroy()
             if ui_changed and messagebox.askyesno(
@@ -6520,8 +6751,8 @@ class App:
             calm_box.set(DEFAULT_SETTINGS["calm"])
             protect_box.set(DEFAULT_SETTINGS["protect"])
 
-        tk.Button(bar, text=tr("Salvar"), command=save, bg=ACCENT, fg="white",
-                  activebackground=ACCENT_HOVER, activeforeground="white", relief="flat", bd=0,
+        tk.Button(bar, text=tr("Salvar"), command=save, bg=ACCENT, fg=ON_ACCENT,
+                  activebackground=ACCENT_HOVER, activeforeground=ON_ACCENT, relief="flat", bd=0,
                   padx=22, pady=7, font=(FONT, 9, "bold"), cursor="hand2").pack(side="right")
         tk.Button(bar, text=tr("Cancelar"), command=win.destroy, bg=PANEL, fg=TEXT,
                   activebackground=BORDER, activeforeground=TEXT, relief="flat", bd=0,
@@ -6529,6 +6760,73 @@ class App:
         tk.Button(bar, text=tr("Restaurar padrões"), command=reset, bg=BG, fg=MUTED,
                   activebackground=BG, activeforeground=TEXT, relief="flat", bd=0,
                   font=(FONT, 9), cursor="hand2").pack(side="left")
+
+    # ---- bandeja do Windows -------------------------------------------
+
+    def _tray_tip(self):
+        return "Game Mode · " + (tr("Ligado") if self.is_on() else tr("Desligado"))
+
+    def _tray_labels(self):
+        return (tr("Abrir o Game Mode"), tr("Ligar ou desligar o Game Mode"), tr("Restaurar tudo agora"),
+                tr("Sair"))
+
+    def _tray_call(self, fn):
+        """Os cliques chegam de outra thread: passa o trabalho para a thread da janela."""
+        try:
+            self.root.after(0, fn)
+        except Exception:
+            self.after_queue.put(fn)
+
+    def _tray_apply(self):
+        """Liga ou desliga o ícone da bandeja conforme a opção. Retorna True se o ícone está lá."""
+        want = bool(self.settings.get("tray_show", True)) and gm_tray is not None
+        if want and self._tray is None:
+            try:
+                tray = gm_tray.Tray(
+                    self._tray_tip(), app_icon_path(), self._tray_labels,
+                    lambda: self._tray_call(self._show_from_tray),
+                    lambda: self._tray_call(self.toggle),
+                    lambda: self._tray_call(self.panic_restore),
+                    lambda: self._tray_call(self.on_close))
+                if tray.start():
+                    self._tray = tray
+                    self._tray_tip_last = self._tray_tip()
+            except Exception:
+                write_error_log("Ícone da bandeja falhou:\n" + traceback.format_exc())
+        elif not want and self._tray is not None:
+            try:
+                self._tray.stop()
+            except Exception:
+                pass
+            self._tray = None
+        return self._tray is not None
+
+    def _show_from_tray(self):
+        try:
+            self.root.deiconify()
+            self.root.state("normal")
+        except Exception:
+            pass
+        self._bring_to_front()
+
+    def _hide_at_start(self):
+        """Abrir minimizado: com o ícone na bandeja a janela some (sem botão na barra de tarefas)."""
+        if self._tray_apply():
+            self.root.withdraw()
+        else:
+            self.root.iconify()
+
+    def _on_close_button(self):
+        """O X da janela: com a bandeja ligada só esconde a janela; o ícone tem o 'Sair'."""
+        if self._tray is not None and self.settings.get("tray_close", True):
+            self.root.withdraw()
+            if not self.settings.get("tray_tip"):
+                self.settings["tray_tip"] = True
+                save_settings(self.settings)
+                self._tray.notify("Game Mode", tr("O Game Mode continua na bandeja. "
+                                                   "Clique com o botão direito no ícone para sair."))
+            return
+        self.on_close()
 
     def _restart_program(self):
         """Closes everything cleanly and opens the program again (used after a language/theme change)."""
@@ -6554,6 +6852,11 @@ class App:
         except Exception:
             pass
         self._auto_stop.set()
+        try:
+            if self._tray is not None:
+                self._tray.stop()
+        except Exception:
+            pass
         try:
             self.overlay.hide()
             self.hud.hide()

@@ -23,11 +23,11 @@ PREPARO (uma vez so)
 
 COMO LANCAR UMA VERSAO NOVA
 1. No gamemode_app.py, mude a linha APP_VERSION para um numero MAIOR.
-   Exemplo: de "2.6 (update notice, performance settings)" para "2.7 (texto qualquer)".
+   Exemplo: de "2.6 (update notice, performance settings)" para "2.6 (texto qualquer)".
    Tem que ser dois numeros (2.5), nao tres.
 2. No NOVIDADES.txt, escreva o que mudou. Esse texto aparece para os usuarios.
 3. Arquivos do programa: gamemode_app.py, gm_mods.py, gm_extras.py, gm_i18n.py, gm_lang.py,
-   gm_games.py, GameMode.nsi, NOVIDADES.txt e .github/workflows/compilar.yml.
+   gm_games.py, gm_tray.py, app.ico, GameMode.nsi, NOVIDADES.txt e .github/workflows/compilar.yml.
    No GitHub, abra cada arquivo que mudou, clique no lapis, cole o conteudo
    novo e clique em "Commit changes". (Ou arraste os arquivos de novo.)
 4. A compilacao comeca sozinha (aba Actions) e leva uns 15 minutos. No fim ela
