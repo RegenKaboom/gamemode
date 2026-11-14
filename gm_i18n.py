@@ -127,12 +127,12 @@ def tr(text):
 # ---- palettes ---------------------------------------------------------------------
 
 DARK = {
-    "BG": "#14151a", "SIDE": "#191b21", "CARD": "#1b1d24", "PANEL": "#23262e", "BORDER": "#2a2d36",
-    "TEXT": "#e8eaf0", "MUTED": "#8b909c", "ACCENT": "#4f8cff", "GREEN": "#35d07f",
-    "WARN": "#f5a623", "PINK": "#c678dd", "TEAL": "#2ec4b6",
-    "SEL": "#22304f", "ACCENT_HOVER": "#3d78e6", "OFF": "#3a3d47", "OFF_DIS": "#2c2e36",
-    "KNOB_DIS": "#6b6f7a", "ICON": "#9aa0ab", "ICON_HOVER": "#c5c9d3", "ICON_BG": "#1f2a44",
-    "BTN_BG": "#12131a", "GLOW1": "#172340", "GLOW2": "#1a2a4d", "GLOW3": "#203764",
+    "BG": "#0e0f13", "SIDE": "#14151b", "CARD": "#1a1c24", "PANEL": "#242732", "BORDER": "#2d313d",
+    "TEXT": "#eceef4", "MUTED": "#8f94a1", "ACCENT": "#5b94ff", "GREEN": "#35d07f",
+    "WARN": "#f5a623", "PINK": "#b983f0", "TEAL": "#2ec4b6",
+    "SEL": "#23325a", "ACCENT_HOVER": "#4379e6", "OFF": "#3a3e4b", "OFF_DIS": "#2a2d37",
+    "KNOB_DIS": "#6b6f7a", "ICON": "#9aa0ab", "ICON_HOVER": "#c5c9d3", "ICON_BG": "#202b4a",
+    "BTN_BG": "#0c0d11", "GLOW1": "#141f3a", "GLOW2": "#18284a", "GLOW3": "#1f3566",
 }
 LIGHT = {
     "BG": "#f4f5f8", "SIDE": "#eceef3", "CARD": "#ffffff", "PANEL": "#e4e8ef", "BORDER": "#cdd3de",

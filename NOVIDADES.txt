@@ -1,14 +1,14 @@
-Version 2.8
-- Fixed the three cards on the Game Mode screen: the big numbers now shrink to fit and long titles wrap to two lines instead of being cut off.
-- 6 new mods: Windows Game Mode, Mouse for games, Keyboard without popups, Shader cache, Monitor refresh rate and Windows startup. All but the shader cache have an Undo button.
-- Fixed: the backup of "Windows for games" was lost when the program was closed, so Undo could not restore the old values.
+Version 2.9
+- Visual refresh: rounded cards and buttons with smooth edges, buttons that react to the mouse, a colored pill on the open page in the side menu and a new brand mark.
+- Deeper dark theme with clearer separation between the background and the cards. The other themes keep their colors.
+- Cleaner tables (no more white outline) and a thin scroll bar. Nothing changed in the layout.
 
-Versão 2.8
-- Conserto dos três cartões da tela de Game Mode: os números grandes encolhem até caber e os títulos compridos quebram em duas linhas, sem ficar cortados.
-- 6 mods novos: Modo Jogo do Windows, Mouse para jogos, Teclado sem popups, Cache de shaders, Taxa de atualização do monitor e Inicialização do Windows. Todos, menos o cache de shaders, têm botão de desfazer.
-- Corrigido: o backup de "Windows para jogos" se perdia ao fechar o programa, e o Desfazer não conseguia voltar aos valores antigos.
+Versão 2.9
+- Visual renovado: cartões e botões arredondados com bordas suaves, botões que reagem ao mouse, uma pílula colorida na página aberta do menu lateral e uma nova marca.
+- Tema escuro mais profundo, com mais separação entre o fundo e os cartões. Os outros temas mantêm as cores.
+- Tabelas mais limpas (sem o contorno branco) e barra de rolagem fina. O layout não mudou.
 
-Versión 2.8
-- Arreglo de las tres tarjetas de la pantalla Game Mode: los números grandes se reducen hasta caber y los títulos largos pasan a dos líneas, sin quedar cortados.
-- 6 mods nuevos: Modo Juego de Windows, Ratón para juegos, Teclado sin ventanas emergentes, Caché de shaders, Frecuencia de actualización del monitor e Inicio de Windows. Todos menos la caché de shaders tienen botón de deshacer.
-- Corregido: la copia de seguridad de "Windows para juegos" se perdía al cerrar el programa y Deshacer no podía volver a los valores anteriores.
+Versión 2.9
+- Aspecto renovado: tarjetas y botones redondeados con bordes suaves, botones que reaccionan al ratón, una píldora de color en la página abierta del menú lateral y una nueva marca.
+- Tema oscuro más profundo, con más separación entre el fondo y las tarjetas. Los otros temas mantienen sus colores.
+- Tablas más limpias (sin el contorno blanco) y barra de desplazamiento fina. El diseño no cambió.

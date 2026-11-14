@@ -8,7 +8,7 @@ A Windows app that makes games run smoother and shows useful information on scre
 - **Steam and Epic Games:** Options > *Import from Steam / Epic* finds installed games and adds them as profiles, with the `.exe` path already filled in.
 - **Mods tab:** QoS, Movement Helper, brightness, shaders, Windows game tweaks, Windows Game Mode, mouse acceleration off, keyboard without popups, shader cache cleanup, monitor refresh rate and Windows startup programs. Everything that changes Windows keeps a backup and has an Undo button (the shader cache is just rebuilt by the games).
 - **Languages:** English, Portuguese and Spanish (installer and Options > Accessibility).
-- **Look:** side menu, Ctrl+K search, 11 themes (Dark, Light, Midnight, OLED, Ocean, Forest, Violet, Rose, Amber, Emerald, Sakura) and accent colors, in Options > Appearance.
+- **Look:** rounded cards and buttons, side menu, Ctrl+K search, 11 themes (Dark, Light, Midnight, OLED, Ocean, Forest, Violet, Rose, Amber, Emerald, Sakura) and accent colors, in Options > Appearance.
 - **Tray icon:** next to the clock, with a right-click menu (open, turn on/off, restore, exit). Closing the window can keep the program in the tray.
 - **Update notice:** after every update a window shows what is new (language of your choice).
 - **Performance:** Options > *Game Mode's own performance* lowers the program's own CPU use (Normal, Light, Minimal). Games can keep the screen awake and turn off fullscreen optimizations.
@@ -42,7 +42,7 @@ A text with no row is shown as written, so a missing translation never breaks th
 
 Pushing to `main` runs the workflow: Nuitka compiles the program, NSIS builds `Instalar_GameMode_<version>.exe`
 and a GitHub Release `v<version>` is published with `latest.json`. The version comes from the `APP_VERSION`
-line of `gamemode_app.py` (two numbers, like `2.8`). Release notes come from `NOVIDADES.txt`.
+line of `gamemode_app.py` (two numbers, like `2.9`). Release notes come from `NOVIDADES.txt`.
 See `ATUALIZAR.txt` (Portuguese) for the step-by-step.
 
 The repository must be **public** for installed copies to download updates.

@@ -160,7 +160,7 @@ POLL_ACTIVE_SECONDS = 3.0    # jogo aberto (menos trabalho enquanto você joga)
 RETRIM_SECONDS = 60.0
 POLL_IDLE_SLOW_SECONDS = 5.0  # depois de 1 min esperando o jogo, olha menos vezes
 IDLE_SLOW_AFTER = 60.0
-APP_VERSION = "2.8 (card fix, 6 new mods)"
+APP_VERSION = "2.9 (visual refresh)"
 UPDATE_REPO = "RegenKaboom/gamemode"                  # onde as versões novas são publicadas (GitHub Releases)
 UPDATE_MANIFEST_URL = f"https://github.com/{UPDATE_REPO}/releases/latest/download/latest.json"
 UPDATE_PAGE = f"https://github.com/{UPDATE_REPO}/releases/latest"
@@ -3098,6 +3098,389 @@ def rounded_rect(canvas, x1, y1, x2, y2, r, **kw):
     return canvas.create_polygon(pts, smooth=True, **kw)
 
 
+# ---- cantos arredondados com bordas suaves ---------------------------------------------------
+# O Tk não suaviza o desenho do Canvas, então o fundo de cartões e botões é uma imagem montada
+# pixel a pixel (só os 4 cantos têm cálculo; o resto é preenchimento). Sem biblioteca de imagem.
+
+def _rgb(color):
+    return tuple(int(color[i:i + 2], 16) for i in (1, 3, 5))
+
+
+def _mixc(a, b, t):
+    """Mistura a cor a em direção à b (t = 0 fica em a, t = 1 vira b)."""
+    ra, rb = _rgb(a), _rgb(b)
+    return "#%02x%02x%02x" % tuple(int(round(x + (y - x) * t)) for x, y in zip(ra, rb))
+
+
+_CORNERS = {}
+_IMG_CACHE = {}
+
+
+def _corner_rows(r, fills, border, bg):
+    """Canto superior esquerdo r x r. Cada pixel mistura fundo, borda e preenchimento pela área
+    que cada um cobre (16 amostras por pixel). fills = cor do preenchimento de cada linha."""
+    key = (r, fills, border, bg)
+    rows = _CORNERS.get(key)
+    if rows is not None:
+        return rows
+    samples = 4
+    total = samples * samples
+    bgc = _rgb(bg)
+    bdc = _rgb(border) if border else None
+    rows = []
+    for y in range(r):
+        fc = _rgb(fills[y])
+        row = []
+        for x in range(r):
+            outer = inner = 0
+            for sy in range(samples):
+                py = y + (sy + 0.5) / samples - r
+                for sx in range(samples):
+                    px = x + (sx + 0.5) / samples - r
+                    d2 = px * px + py * py
+                    if d2 <= r * r:
+                        outer += 1
+                        if d2 <= (r - 1) * (r - 1):
+                            inner += 1
+            a_out = outer / total
+            a_in = (inner if border else outer) / total
+            w_bd = a_out - a_in if border else 0.0
+            pix = []
+            for i in range(3):
+                value = bgc[i] * (1 - a_out) + fc[i] * a_in
+                if bdc:
+                    value += bdc[i] * w_bd
+                pix.append(int(round(value)))
+            row.append("#%02x%02x%02x" % tuple(pix))
+        rows.append(row)
+    _CORNERS[key] = rows
+    return rows
+
+
+def round_image(master, w, h, r, top, bottom, border, bg):
+    """Imagem w x h com cantos arredondados suaves. top/bottom = cor do preenchimento (degradê
+    vertical se forem diferentes); border = cor da borda de 1 pixel ou None; bg = cor por trás."""
+    w, h = max(int(w), 4), max(int(h), 4)
+    r = max(2, min(int(r), w // 2, h // 2))
+    img = tk.PhotoImage(master=master, width=w, height=h)
+    flat = top == bottom
+
+    def fill_at(y):
+        return top if flat else _mixc(top, bottom, y / max(h - 1, 1))
+
+    if flat:
+        img.put(top, to=(0, 0, w, h))
+    else:
+        for y in range(h):
+            img.put(fill_at(y), to=(0, y, w, y + 1))
+    if border:
+        if w - 2 * r > 0:
+            row = "{" + " ".join([border] * (w - 2 * r)) + "}"
+            img.put(row, to=(r, 0))
+            img.put(row, to=(r, h - 1))
+        if h - 2 * r > 0:
+            col = " ".join("{%s}" % border for _ in range(h - 2 * r))
+            img.put(col, to=(0, r))
+            img.put(col, to=(w - 1, r))
+    for x0, y0, ys, flip_x, flip_y in (
+            (0, 0, range(r), False, False), (w - r, 0, range(r), True, False),
+            (0, h - r, range(h - 1, h - r - 1, -1), False, True),
+            (w - r, h - r, range(h - 1, h - r - 1, -1), True, True)):
+        rows = _corner_rows(r, tuple(fill_at(y) for y in ys), border, bg)
+        if flip_y:
+            rows = rows[::-1]
+        if flip_x:
+            rows = [row[::-1] for row in rows]
+        img.put(" ".join("{" + " ".join(row) + "}" for row in rows), to=(x0, y0))
+    return img
+
+
+def cached_round_image(master, w, h, r, top, bottom, border, bg):
+    key = (w, h, r, top, bottom, border, bg)
+    img = _IMG_CACHE.get(key)
+    if img is None:
+        if len(_IMG_CACHE) > 400:
+            _IMG_CACHE.clear()
+        img = _IMG_CACHE[key] = round_image(master, w, h, r, top, bottom, border, bg)
+    return img
+
+
+def _bg_of(widget, default=None):
+    """Cor de fundo de um widget como #rrggbb (aceita nomes de cor do Windows); BG se não souber."""
+    try:
+        r, g, b = widget.winfo_rgb(widget.cget("bg"))
+        return "#%02x%02x%02x" % (r >> 8, g >> 8, b >> 8)
+    except (tk.TclError, ValueError, AttributeError):
+        return default or BG
+
+
+def _card_pad():
+    """Margem que o cartão arredondado tira dos dois lados do conteúdo."""
+    return 2 * RoundCard.INSET
+
+
+def _card_shell(parent, stretch=False, **kw):
+    """(peça para colocar na grade, corpo onde ficam os filhos). Se o cartão arredondado não puder
+    ser criado, volta ao quadro simples de antes: o programa nunca deixa de abrir por causa disso."""
+    try:
+        shell = RoundCard(parent, stretch=stretch, **kw)
+        return shell, shell.body
+    except Exception:
+        plain = tk.Frame(parent, bg=kw.get("fill") or CARD, width=kw.get("width", 1),
+                         highlightthickness=1, highlightbackground=BORDER)
+        return plain, plain
+
+
+class RoundCard(tk.Canvas):
+    """Cartão de cantos arredondados. O conteúdo vai dentro de .body (um Frame comum).
+    stretch=True: o conteúdo ocupa a altura que a tela der (ex.: a tabela)."""
+    INSET = 6
+
+    def __init__(self, parent, radius=14, stretch=False, min_height=1, width=1, fill=None, border=None):
+        self._fill = fill or CARD
+        self._border = border or BORDER
+        self._outer = _bg_of(parent)
+        super().__init__(parent, width=width, height=min_height, bg=self._outer,
+                         highlightthickness=0, bd=0)
+        self.radius, self.stretch = radius, stretch
+        self.body = tk.Frame(self, bg=self._fill)
+        self._pic = self.create_image(0, 0, anchor="nw")
+        self._win = self.create_window(self.INSET, self.INSET, window=self.body, anchor="nw")
+        self._img, self._size, self._job, self._want = None, (0, 0), None, 0
+        self.bind("<Configure>", self._on_canvas)
+        self.bind("<Destroy>", self._on_destroy)
+        if not stretch:
+            self.body.bind("<Configure>", self._on_body)
+
+    def _on_body(self, _event=None):
+        need = self.body.winfo_reqheight() + 2 * self.INSET
+        if need != self._want:
+            self._want = need
+            self.config(height=need)
+
+    def _on_canvas(self, event):
+        inner_w = max(1, event.width - 2 * self.INSET)
+        if self.stretch:
+            self.itemconfigure(self._win, width=inner_w, height=max(1, event.height - 2 * self.INSET))
+        else:
+            self.itemconfigure(self._win, width=inner_w)
+        if (event.width, event.height) != self._size:
+            self._size = (event.width, event.height)
+            if self._img is None:
+                self._paint()
+            else:
+                if self._job:
+                    self.after_cancel(self._job)
+                self._job = self.after(40, self._paint)
+
+    def _on_destroy(self, _event=None):
+        if self._job:
+            try:
+                self.after_cancel(self._job)
+            except tk.TclError:
+                pass
+
+    def _paint(self):
+        self._job = None
+        w, h = self._size
+        if w < 8 or h < 8:
+            return
+        try:
+            img = round_image(self, w, h, self.radius, self._fill, self._fill, self._border, self._outer)
+            self.itemconfigure(self._pic, image=img)
+            self._img = img
+        except tk.TclError:
+            return
+        except Exception:               # sem a imagem, um retângulo simples: nunca fica sem fundo
+            self.delete("plain")
+            self.create_rectangle(0, 0, w - 1, h - 1, fill=self._fill, outline=self._border, tags="plain")
+            self.tag_lower("plain")
+            self._img = False
+
+
+class RoundButton(tk.Canvas):
+    """Botão de cantos arredondados com degradê leve e reação ao mouse (passar, apertar).
+    kind: 'primary' (cor de destaque), 'normal' (cinza) ou 'quiet' (só texto, sem fundo)."""
+
+    def __init__(self, parent, text="", command=None, primary=False, quiet=False, font=None,
+                 padx=16, pady=8, radius=9, min_width=0):
+        self._outer = _bg_of(parent)
+        self._min_w, self._selected = min_width, False
+        self.kind = "primary" if primary else ("quiet" if quiet else "normal")
+        self._font = font or (FONT, 9, "bold" if primary else "normal")
+        self._tkfont = tkfont.Font(font=self._font)
+        self._pad = (padx, pady)
+        self.radius = radius
+        self._text, self.command = text, command
+        self._state, self._over, self._down, self._img = "normal", False, False, None
+        super().__init__(parent, bg=self._outer, highlightthickness=0, bd=0, cursor="hand2",
+                         width=max(self._tkfont.measure(text) + 2 * padx, min_width),
+                         height=self._tkfont.metrics("linespace") + 2 * pady)
+        self.bind("<Configure>", lambda _e: self._paint())
+        self.bind("<Enter>", lambda _e: self._hover(True))
+        self.bind("<Leave>", lambda _e: self._hover(False))
+        self.bind("<ButtonPress-1>", self._press)
+        self.bind("<ButtonRelease-1>", self._release)
+
+    # ---- compatível com o que o programa já fazia com tk.Button
+    def config(self, cnf=None, **kw):
+        if cnf:
+            kw.update(cnf)
+        redo = False
+        if "text" in kw:
+            self._text = kw.pop("text")
+            super().config(width=max(self._tkfont.measure(self._text) + 2 * self._pad[0], self._min_w))
+            redo = True
+        if "command" in kw:
+            self.command = kw.pop("command")
+        if "state" in kw:
+            self._state = kw.pop("state")
+            super().config(cursor="hand2" if self._state != "disabled" else "arrow")
+            redo = True
+        if "bg" in kw:                       # o programa marca a opção escolhida pintando o botão de ACCENT
+            self._selected = kw.pop("bg") == ACCENT
+            redo = True
+        for ignored in ("fg", "activebackground", "activeforeground", "relief", "bd", "padx", "pady",
+                        "font", "cursor"):
+            kw.pop(ignored, None)
+        if kw:
+            super().config(**kw)
+        if redo:
+            self._paint()
+
+    configure = config
+
+    def cget(self, key):
+        if key == "state":
+            return self._state
+        if key == "text":
+            return self._text
+        return super().cget(key)
+
+    def invoke(self):
+        if self._state != "disabled" and self.command:
+            self.command()
+
+    # ---- mouse
+    def _hover(self, over):
+        self._over = over
+        if not over:
+            self._down = False
+        self._paint()
+
+    def _press(self, _event):
+        if self._state != "disabled":
+            self._down = True
+            self._paint()
+
+    def _release(self, event):
+        was_down, self._down = self._down, False
+        self._paint()
+        if was_down and 0 <= event.x < self.winfo_width() and 0 <= event.y < self.winfo_height():
+            self.invoke()
+
+    # ---- desenho
+    def _look(self):
+        """(cor de cima, cor de baixo, borda, cor do texto) para o estado de agora."""
+        if self._state == "disabled":
+            fill = _mixc(PANEL, self._outer, 0.45)
+            return fill, fill, None, _mixc(MUTED, self._outer, 0.4)
+        if self.kind == "primary" or self._selected:
+            if self._down:
+                return ACCENT_HOVER, ACCENT_HOVER, None, ON_ACCENT
+            if ON_ACCENT == "#ffffff":      # texto branco: o degradê só escurece (o contraste nunca cai)
+                if self._over:
+                    return _mixc(ACCENT, "#000000", 0.06), _mixc(ACCENT, "#000000", 0.18), None, ON_ACCENT
+                return ACCENT, _mixc(ACCENT, "#000000", 0.08), None, ON_ACCENT
+            if self._over:
+                return _mixc(ACCENT, "#ffffff", 0.22), _mixc(ACCENT, "#ffffff", 0.06), None, ON_ACCENT
+            return _mixc(ACCENT, "#ffffff", 0.12), ACCENT, None, ON_ACCENT
+        if self.kind == "quiet":
+            if self._down:
+                return BORDER, BORDER, None, TEXT
+            if self._over:
+                return PANEL, PANEL, None, TEXT
+            return self._outer, self._outer, None, MUTED
+        if self._down:
+            return BORDER, BORDER, BORDER, TEXT
+        if self._over:
+            fill = _mixc(PANEL, TEXT, 0.08)
+            return fill, fill, _mixc(BORDER, TEXT, 0.2), TEXT
+        return PANEL, PANEL, BORDER, TEXT
+
+    def _paint(self):
+        w, h = self.winfo_width(), self.winfo_height()
+        if w < 8 or h < 8:
+            return
+        top, bottom, border, color = self._look()
+        self.delete("all")
+        try:
+            if not (top == self._outer and bottom == self._outer):
+                img = cached_round_image(self, w, h, self.radius, top, bottom, border, self._outer)
+                self._img = img
+                self.create_image(0, 0, image=img, anchor="nw")
+        except tk.TclError:
+            return
+        except Exception:
+            self.create_rectangle(0, 0, w - 1, h - 1, fill=top, outline=border or top)
+        self.create_text(w // 2, h // 2, text=self._text, fill=color, font=self._font)
+
+
+class NavItem(tk.Canvas):
+    """Item do menu lateral: ícone + nome. O item aberto vira uma pílula colorida."""
+
+    def __init__(self, parent, icon, text, command, height=42):
+        self._outer = _bg_of(parent)
+        super().__init__(parent, width=1, height=height, bg=self._outer, highlightthickness=0, bd=0,
+                         cursor="hand2")
+        self._icon, self._text, self._active, self._over, self._img = icon, text, False, False, None
+        self.bind("<Configure>", lambda _e: self._paint())
+        self.bind("<Button-1>", lambda _e: command())
+        self.bind("<Enter>", lambda _e: self.set_state(self._active, True))
+        self.bind("<Leave>", lambda _e: self.set_state(self._active, False))
+
+    def set_state(self, active, over):
+        if (active, over) != (self._active, self._over):
+            self._active, self._over = active, over
+            self._paint()
+
+    def _paint(self):
+        w, h = self.winfo_width(), self.winfo_height()
+        if w < 8 or h < 8:
+            return
+        self.delete("all")
+        fill = SEL if self._active else (PANEL if self._over else self._outer)
+        try:
+            if fill != self._outer:
+                self._img = cached_round_image(self, w, h, 10, fill, fill, None, self._outer)
+                self.create_image(0, 0, image=self._img, anchor="nw")
+        except tk.TclError:
+            return
+        except Exception:
+            self.create_rectangle(0, 0, w, h, fill=fill, outline=fill)
+        lit = self._active or self._over
+        self.create_text(22, h // 2, text=self._icon, font=("Segoe UI Symbol", 12), anchor="center",
+                         fill=ACCENT if self._active else (TEXT if lit else MUTED))
+        self.create_text(46, h // 2, text=self._text, font=(FONT, 10, "bold"), anchor="w",
+                         fill=TEXT if lit else MUTED)
+
+
+class IconTile(tk.Canvas):
+    """Quadrado arredondado com degradê da cor de destaque para a secundária e um símbolo branco
+    (a marca do programa, no mesmo estilo do ícone)."""
+
+    def __init__(self, parent, glyph, size=40):
+        outer = _bg_of(parent)
+        super().__init__(parent, width=size, height=size, bg=outer, highlightthickness=0, bd=0)
+        try:
+            self._img = round_image(self, size, size, 11, ACCENT, PINK, None, outer)
+            self.create_image(0, 0, image=self._img, anchor="nw")
+        except Exception:
+            self.create_rectangle(0, 0, size, size, fill=ACCENT, outline=ACCENT)
+        self.create_text(size // 2, size // 2 + 1, text=glyph, fill="#ffffff",
+                         font=("Segoe UI Symbol", int(size * 0.42), "bold"))
+
+
 def normalize_app_name(text):
     """'Chrome', ' C:\\x\\chrome.EXE ' -> 'chrome.exe'. Vazio se não sobrar nada."""
     name = text.strip().strip('"').strip("'").strip()
@@ -3155,9 +3538,13 @@ class AppListEditor(tk.Frame):
 
     @staticmethod
     def _button(parent, text, command, bg, fg, padx=12):
-        return tk.Button(parent, text=text, command=command, bg=bg, fg=fg,
-                         activebackground=BORDER, activeforeground=TEXT, relief="flat", bd=0,
-                         padx=padx, pady=5, font=(FONT, 9), cursor="hand2")
+        try:
+            return RoundButton(parent, text, command, primary=(bg == ACCENT), quiet=(bg == BG),
+                               padx=padx, pady=6)
+        except Exception:
+            return tk.Button(parent, text=text, command=command, bg=bg, fg=fg,
+                             activebackground=BORDER, activeforeground=TEXT, relief="flat", bd=0,
+                             padx=padx, pady=5, font=(FONT, 9), cursor="hand2")
 
     def get(self):
         return sorted(set(self.listbox.get(0, "end")))
@@ -3413,15 +3800,21 @@ class App:
             style.theme_use("clam")
         except tk.TclError:
             pass
+        head_bg = _mixc(CARD, TEXT, 0.05)
         style.configure("Treeview", background=CARD, fieldbackground=CARD, foreground=TEXT,
-                        borderwidth=0, rowheight=28, font=(FONT, 10))
-        style.configure("Treeview.Heading", background=PANEL, foreground=MUTED, relief="flat",
-                        borderwidth=0, font=(FONT, 9, "bold"))
-        style.map("Treeview", background=[("selected", SEL)],
-                  foreground=[("selected", TEXT)])
-        style.map("Treeview.Heading", background=[("active", PANEL)])
-        style.configure("Vertical.TScrollbar", background=PANEL, troughcolor=BG,
-                        bordercolor=BG, arrowcolor=MUTED, lightcolor=PANEL, darkcolor=PANEL)
+                        borderwidth=0, rowheight=32, font=(FONT, 10), bordercolor=CARD,
+                        lightcolor=CARD, darkcolor=CARD)
+        style.layout("Treeview", [("Treeview.treearea", {"sticky": "nswe"})])   # sem a borda branca de foco
+        style.configure("Treeview.Heading", background=head_bg, foreground=MUTED, relief="flat",
+                        borderwidth=0, padding=(8, 8), font=(FONT, 9, "bold"))
+        style.map("Treeview", background=[("selected", SEL)], foreground=[("selected", TEXT)])
+        style.map("Treeview.Heading", background=[("active", _mixc(CARD, TEXT, 0.09))])
+        # barra de rolagem fina, sem setas
+        style.layout("Vertical.TScrollbar", [("Vertical.Scrollbar.trough", {
+            "sticky": "ns", "children": [("Vertical.Scrollbar.thumb", {"expand": "1", "sticky": "nswe"})]})])
+        style.configure("Vertical.TScrollbar", background=BORDER, troughcolor=BG, bordercolor=BG,
+                        lightcolor=BORDER, darkcolor=BORDER, gripcount=0, width=9, borderwidth=0)
+        style.map("Vertical.TScrollbar", background=[("active", MUTED), ("pressed", MUTED)])
         style.configure("TCombobox", fieldbackground=PANEL, background=PANEL, foreground=TEXT,
                         arrowcolor=MUTED, bordercolor=BORDER, lightcolor=PANEL, darkcolor=PANEL,
                         selectbackground=PANEL, selectforeground=TEXT)
@@ -3448,8 +3841,7 @@ class App:
 
         brand = tk.Frame(inner, bg=SIDE)
         brand.pack(fill="x", padx=18, pady=(24, 22))
-        tk.Label(brand, text="\U0001F3AE", bg=ICON_BG, fg=ACCENT, font=("Segoe UI Emoji", 14),
-                 width=3).pack(side="left")
+        IconTile(brand, "\u23FB").pack(side="left")
         names = tk.Frame(brand, bg=SIDE)
         names.pack(side="left", padx=12)
         tk.Label(names, text="Game Mode", bg=SIDE, fg=TEXT, font=(FONT, 13, "bold")).pack(anchor="w")
@@ -3480,10 +3872,8 @@ class App:
         self.page_title.pack(anchor="w")
         self.page_sub = tk.Label(titles, bg=BG, fg=MUTED, font=(FONT, 10))
         self.page_sub.pack(anchor="w", pady=(2, 0))
-        search = tk.Label(head, text="\U0001F50D  Buscar...      Ctrl+K", bg=PANEL, fg=MUTED,
-                          font=(FONT, 9), padx=16, pady=9, cursor="hand2")
+        search = self._btn(head, "\U0001F50D  Buscar...      Ctrl+K", self.open_palette, pady=10, padx=18)
         search.pack(side="right")
-        search.bind("<Button-1>", lambda _e: self.open_palette())
         root.bind("<Control-k>", lambda _e: self.open_palette())
 
         content = tk.Frame(main, bg=BG)
@@ -3499,30 +3889,14 @@ class App:
         self.select_tab("game")
 
     def _nav_item(self, parent, icon, text, command):
-        """One entry of the left menu: colored bar + icon + name; it lights up on hover."""
-        row = tk.Frame(parent, bg=SIDE, cursor="hand2")
-        row.pack(fill="x", padx=10, pady=2)
-        bar = tk.Frame(row, bg=SIDE, width=3)
-        bar.pack(side="left", fill="y")
-        ic = tk.Label(row, text=icon, bg=SIDE, fg=MUTED, font=("Segoe UI Symbol", 12), width=3)
-        ic.pack(side="left", pady=9)
-        lb = tk.Label(row, text=text, bg=SIDE, fg=MUTED, font=(FONT, 10, "bold"), anchor="w")
-        lb.pack(side="left", fill="x", expand=True)
-        item = {"row": row, "bar": bar, "icon": ic, "label": lb, "active": False}
-        for w in (row, ic, lb):
-            w.bind("<Button-1>", lambda _e: command())
-            w.bind("<Enter>", lambda _e, it=item: self._nav_paint(it, True))
-            w.bind("<Leave>", lambda _e, it=item: self._nav_paint(it, False))
-        return item
+        """Um item do menu da esquerda: o aberto vira uma pílula colorida, e ele acende ao passar o mouse."""
+        widget = NavItem(parent, icon, text, command)
+        widget.pack(fill="x", padx=10, pady=2)
+        return {"w": widget, "active": False}
 
-    def _nav_paint(self, item, hover=False):
-        on = item["active"]
-        bg = PANEL if (on or hover) else SIDE
-        for key in ("row", "icon", "label"):
-            item[key].config(bg=bg)
-        item["bar"].config(bg=ACCENT if on else bg)
-        item["icon"].config(fg=ACCENT if on else (TEXT if hover else MUTED))
-        item["label"].config(fg=TEXT if (on or hover) else MUTED)
+    def _nav_paint(self, item, hover=None):
+        widget = item["w"]
+        widget.set_state(item["active"], widget._over if hover is None else hover)
 
     def select_tab(self, key):
         self.tab = key
@@ -3622,9 +3996,8 @@ class App:
         page.grid_columnconfigure(1, weight=1)
         page.grid_rowconfigure(0, weight=1)
 
-        side = tk.Frame(page, bg=SIDE, width=300, highlightthickness=1,
-                        highlightbackground=BORDER)
-        side.grid(row=0, column=0, sticky="ns", padx=(22, 14), pady=(0, 20))
+        side_shell, side = _card_shell(page, stretch=True, width=300, fill=SIDE)
+        side_shell.grid(row=0, column=0, sticky="ns", padx=(22, 14), pady=(0, 20))
         side.pack_propagate(False)
 
         self.canvas = tk.Canvas(side, width=260, height=250, bg=SIDE, highlightthickness=0,
@@ -3646,11 +4019,8 @@ class App:
         self.info.pack(fill="x", padx=20)
 
         tk.Frame(side, bg=BORDER, height=1).pack(fill="x", padx=20, pady=(16, 0))
-        self.panic_btn = tk.Button(
-            side, text=tr("Restaurar tudo agora"), command=self.panic_restore, bg=PANEL, fg=TEXT,
-            activebackground=BORDER, activeforeground=TEXT, relief="flat", bd=0, padx=14,
-            pady=7, font=(FONT, 9), cursor="hand2")
-        self.panic_btn.pack(padx=20, pady=(12, 4), fill="x")
+        self.panic_btn = self._btn(side, tr("Restaurar tudo agora"), self.panic_restore, pady=9)
+        self.panic_btn.pack(padx=20, pady=(12, 6), fill="x")
         tk.Label(side, text=tr("Devolve a prioridade e a memória dos apps e solta teclas e cliques."),
                  bg=SIDE, fg=MUTED, font=(FONT, 8), wraplength=250, justify="left").pack(
                      anchor="w", padx=20)
@@ -3671,12 +4041,10 @@ class App:
         table_head.grid(row=1, column=0, columnspan=3, sticky="ew", pady=(16, 6))
         tk.Label(table_head, text=tr("Apps que foram diminuídos"), bg=BG, fg=TEXT,
                  font=(FONT, 10, "bold")).pack(side="left")
-        tk.Button(table_head, text=tr("+ Adicionar / remover apps"), command=self.open_apps_manager,
-                  bg=PANEL, fg=TEXT, activebackground=BORDER, activeforeground=TEXT,
-                  relief="flat", bd=0, padx=12, pady=4, font=(FONT, 9),
-                  cursor="hand2").pack(side="right")
-        table = tk.Frame(main, bg=CARD, highlightthickness=1, highlightbackground=BORDER)
-        table.grid(row=2, column=0, columnspan=3, sticky="nsew")
+        self._btn(table_head, tr("+ Adicionar / remover apps"), self.open_apps_manager,
+                  padx=12, pady=5).pack(side="right")
+        table_shell, table = _card_shell(main, stretch=True, min_height=120)
+        table_shell.grid(row=2, column=0, columnspan=3, sticky="nsew")
         cols = ("app", "procs", "acao", "mem")
         self.tree = ttk.Treeview(table, columns=cols, show="headings", height=6)
         for key, text, width, anchor in [
@@ -3698,11 +4066,9 @@ class App:
         logbar.grid(row=3, column=0, columnspan=3, sticky="ew", pady=(14, 6))
         tk.Label(logbar, text=tr("Avisos"), bg=BG, fg=TEXT, font=(FONT, 10, "bold")).pack(side="left")
         for text, command in ((tr("Limpar"), self.clear_log), (tr("Copiar"), self.copy_log)):
-            tk.Button(logbar, text=text, command=command, bg=BG, fg=MUTED, activebackground=BG,
-                      activeforeground=TEXT, relief="flat", bd=0, padx=8, font=(FONT, 9),
-                      cursor="hand2").pack(side="right")
-        logframe = tk.Frame(main, bg=CARD, highlightthickness=1, highlightbackground=BORDER)
-        logframe.grid(row=4, column=0, columnspan=3, sticky="ew")
+            self._btn(logbar, text, command, quiet=True, padx=10, pady=3).pack(side="right", padx=(4, 0))
+        log_shell, logframe = _card_shell(main)
+        log_shell.grid(row=4, column=0, columnspan=3, sticky="ew")
         self.log = tk.Text(logframe, height=6, bg=CARD, fg=MUTED, bd=0, relief="flat",
                            font=("Consolas", 9), wrap="word", state="disabled",
                            padx=10, pady=8)
@@ -3712,9 +4078,9 @@ class App:
         self.log.tag_configure("info", foreground=MUTED)
 
     def _tile(self, parent, col, title, accent):
-        tile = tk.Frame(parent, bg=CARD, highlightthickness=1, highlightbackground=BORDER)
-        tile.grid(row=0, column=col, sticky="nsew",
-                  padx=(0 if col == 0 else 7, 0 if col == 2 else 7))
+        shell, tile = _card_shell(parent)
+        shell.grid(row=0, column=col, sticky="nsew",
+                   padx=(0 if col == 0 else 7, 0 if col == 2 else 7))
         top = tk.Frame(tile, bg=CARD)
         top.pack(fill="x", padx=18, pady=(16, 0))
         tk.Label(top, text="\u25CF", bg=CARD, fg=accent, font=(FONT, 8)).pack(side="left", anchor="n",
@@ -3728,7 +4094,7 @@ class App:
         sub = tk.Label(tile, text=" ", bg=CARD, fg=MUTED, font=(FONT, 9), justify="left", anchor="nw",
                        wraplength=140, width=1, height=2)
         sub.pack(fill="x", padx=18, pady=(0, 16))
-        made = (value, sub, accent, name, tile)
+        made = (value, sub, accent, name, shell)
         self._tiles.append(made)
         return made
 
@@ -3749,12 +4115,12 @@ class App:
                 width = frame.winfo_width()
                 if width < 80:                          # ainda não foi desenhado
                     return
-                room = max(60, width - 36)
+                room = max(60, width - 36 - _card_pad())
                 title_w = max(40, room - 20)
                 if small.measure(name.cget("text")) > title_w:
                     two_lines = True
             for value, sub, _accent, name, frame in tiles:
-                room = max(60, frame.winfo_width() - 36)
+                room = max(60, frame.winfo_width() - 36 - _card_pad())
                 title_w = max(40, room - 20)
                 if int(float(str(name.cget("wraplength")))) != title_w:
                     name.config(wraplength=title_w)
@@ -3783,12 +4149,12 @@ class App:
     def _mod_card(self, parent, row, col, title, desc, accent, span=1):
         """Cartão da aba Mods. Retorna (corpo, selo, status, engrenagem): o que fica sempre
         visível vai no corpo; as configurações vão na engrenagem (abre/fecha com o ícone)."""
-        card = tk.Frame(parent, bg=CARD, highlightthickness=1, highlightbackground=BORDER)
+        shell, card = _card_shell(parent)
         if span == 2:
-            card.grid(row=row, column=0, columnspan=2, sticky="nsew", pady=(0, 14))
+            shell.grid(row=row, column=0, columnspan=2, sticky="nsew", pady=(0, 14))
         else:
-            card.grid(row=row, column=col, sticky="nsew", pady=(0, 14),
-                      padx=(0, 8) if col == 0 else (8, 0))
+            shell.grid(row=row, column=col, sticky="nsew", pady=(0, 14),
+                       padx=(0, 8) if col == 0 else (8, 0))
         head = tk.Frame(card, bg=CARD)
         head.pack(fill="x", padx=18, pady=(16, 0))
         tk.Label(head, text="\u25CF", bg=CARD, fg=accent, font=(FONT, 9)).pack(side="left", padx=(0, 8))
@@ -3844,12 +4210,17 @@ class App:
         return tk.Entry(parent, textvariable=var, width=width, bg=PANEL, fg=TEXT,
                         insertbackground=TEXT, relief="flat", font=(FONT, 10), justify="center")
 
-    def _btn(self, parent, text, command, primary=False):
-        return tk.Button(parent, text=text, command=command, bg=ACCENT if primary else PANEL,
-                         fg=ON_ACCENT if primary else TEXT, activebackground=ACCENT_HOVER if primary else BORDER,
-                         activeforeground=ON_ACCENT if primary else TEXT, relief="flat", bd=0,
-                         padx=16, pady=7, font=(FONT, 9, "bold" if primary else "normal"),
-                         cursor="hand2")
+    def _btn(self, parent, text, command, primary=False, quiet=False, padx=16, pady=8, min_width=0):
+        try:
+            return RoundButton(parent, text, command, primary=primary, quiet=quiet, padx=padx, pady=pady,
+                               min_width=min_width)
+        except Exception:                              # plano B: o botão simples de antes
+            return tk.Button(parent, text=text, command=command, bg=ACCENT if primary else PANEL,
+                             fg=ON_ACCENT if primary else TEXT,
+                             activebackground=ACCENT_HOVER if primary else BORDER,
+                             activeforeground=ON_ACCENT if primary else TEXT, relief="flat", bd=0,
+                             padx=padx, pady=pady - 1, font=(FONT, 9, "bold" if primary else "normal"),
+                             cursor="hand2")
 
     def _switch_row(self, body, row, text, value, command=None):
         tk.Label(body, text=text, bg=CARD, fg=TEXT, font=(FONT, 9), wraplength=250,
@@ -4797,18 +5168,12 @@ class App:
         presets = tk.Frame(body, bg=CARD)
         presets.pack(anchor="w", pady=(8, 0))
         for text, value in BRIGHT_PRESETS:
-            tk.Button(presets, text=f"{text} ({value}%)", bg=PANEL, fg=TEXT,
-                      activebackground=BORDER, activeforeground=TEXT, relief="flat", bd=0,
-                      padx=12, pady=5, font=(FONT, 9), cursor="hand2",
-                      command=lambda v=value: self._bright_preset(v)).pack(
-                          side="left", padx=(0, 8))
-        tk.Button(presets, text=tr("Voltar ao normal"), command=self.bright_reset, bg=PANEL, fg=TEXT,
-                  activebackground=BORDER, activeforeground=TEXT, relief="flat", bd=0, padx=12,
-                  pady=5, font=(FONT, 9), cursor="hand2").pack(side="left", padx=(8, 0))
-        tk.Button(presets, text=tr("Testar brilho"), command=self.open_brightness_test, bg=ACCENT,
-                  fg=ON_ACCENT, activebackground=ACCENT_HOVER, activeforeground=ON_ACCENT, relief="flat",
-                  bd=0, padx=12, pady=5, font=(FONT, 9, "bold"), cursor="hand2").pack(
-                      side="left", padx=(8, 0))
+            self._btn(presets, f"{text} ({value}%)", lambda v=value: self._bright_preset(v),
+                      padx=12, pady=6).pack(side="left", padx=(0, 8))
+        self._btn(presets, tr("Voltar ao normal"), self.bright_reset, padx=12, pady=6).pack(
+            side="left", padx=(8, 0))
+        self._btn(presets, tr("Testar brilho"), self.open_brightness_test, primary=True, padx=12,
+                  pady=6).pack(side="left", padx=(8, 0))
 
         quick = tk.Frame(body, bg=CARD)
         quick.pack(anchor="w", pady=(10, 0))
@@ -4821,10 +5186,8 @@ class App:
         tk.Label(modes, text=tr("Proteção de flash:"), bg=CARD, fg=MUTED, font=(FONT, 9)).pack(
             side="left", padx=(0, 8))
         for name in FLASH_PRESETS:
-            tk.Button(modes, text=name, bg=PANEL, fg=TEXT, activebackground=BORDER,
-                      activeforeground=TEXT, relief="flat", bd=0, padx=12, pady=4,
-                      font=(FONT, 9), cursor="hand2",
-                      command=lambda n=name: self._flash_preset(n)).pack(side="left", padx=(0, 6))
+            self._btn(modes, name, lambda n=name: self._flash_preset(n), padx=14, pady=5).pack(
+                side="left", padx=(0, 6))
         self.auto_info = tk.Label(body, text="", bg=CARD, fg=MUTED, font=(FONT, 9),
                                   justify="left", anchor="w")
         self.auto_info.pack(fill="x", pady=(8, 0))
@@ -4860,10 +5223,8 @@ class App:
         plain(tr("Como aplicar o brilho"))
         self.v_method = combo("method", tr("Método ao escurecer"), BRIGHT_METHOD_LABELS)
         self.v_method_up = combo("method_up", tr("Método ao clarear"), BRIGHT_METHOD_LABELS)
-        tk.Button(gear, text=tr("Testar brilho (descobrir qual método funciona)"),
-                  command=self.open_brightness_test, bg=PANEL, fg=TEXT, activebackground=BORDER,
-                  activeforeground=TEXT, relief="flat", bd=0, padx=12, pady=5, font=(FONT, 9),
-                  cursor="hand2").grid(row=row[0], column=0, columnspan=3, sticky="w", pady=(6, 0))
+        self._btn(gear, tr("Testar brilho (descobrir qual método funciona)"), self.open_brightness_test,
+                  padx=12, pady=6).grid(row=row[0], column=0, columnspan=3, sticky="w", pady=(6, 0))
         row[0] += 1
         plain(tr("Brilho no jogo"))
         slider("boost", tr("Brilho máximo no jogo"), 100, BRIGHT_MAX)
@@ -4912,9 +5273,7 @@ class App:
         grid = tk.Frame(body, bg=CARD)
         grid.pack(anchor="w", pady=(8, 0))
         for i, name in enumerate(SHADER_PRESETS):
-            btn = tk.Button(grid, text=name, width=11, bg=PANEL, fg=TEXT, activebackground=BORDER,
-                            activeforeground=TEXT, relief="flat", bd=0, pady=6, font=(FONT, 9),
-                            cursor="hand2", command=lambda n=name: self._shader_preset(n))
+            btn = self._btn(grid, name, lambda n=name: self._shader_preset(n), pady=8, min_width=96)
             btn.grid(row=i // 4, column=i % 4, padx=(0, 8), pady=(0, 6))
             self._shader_buttons[name] = btn
         self.shader_desc = tk.Label(body, text="", bg=CARD, fg=MUTED, font=(FONT, 9),
@@ -4934,10 +5293,8 @@ class App:
         slider("warmth", tr("Calor (azul frio a laranja quente)"), -100, 100)
         slider("tint", tr("Matiz (verde a magenta)"), -100, 100)
         slider("amount", tr("Força do shader"), 0, 100)
-        tk.Button(gear, text=tr("Zerar ajustes"), command=self._shader_reset, bg=PANEL, fg=TEXT,
-                  activebackground=BORDER, activeforeground=TEXT, relief="flat", bd=0, padx=12,
-                  pady=5, font=(FONT, 9), cursor="hand2").grid(
-                      row=row[0], column=0, sticky="w", pady=(10, 0))
+        self._btn(gear, tr("Zerar ajustes"), self._shader_reset, padx=12, pady=6).grid(
+            row=row[0], column=0, sticky="w", pady=(10, 0))
         self._shader_paint_buttons()
 
     def _shader_paint_buttons(self):
@@ -5889,9 +6246,7 @@ class App:
         looks.pack(anchor="w", pady=(8, 0))
         self._look_buttons = {}
         for name in HUD_LOOKS:
-            btn = tk.Button(looks, text=name, width=12, bg=PANEL, fg=TEXT, activebackground=BORDER,
-                            activeforeground=TEXT, relief="flat", bd=0, pady=6, font=(FONT, 9),
-                            cursor="hand2", command=lambda n=name: self._hud_look(n))
+            btn = self._btn(looks, name, lambda n=name: self._hud_look(n), pady=8, min_width=104)
             btn.pack(side="left", padx=(0, 8))
             self._look_buttons[name] = btn
         self.hud_desc = tk.Label(body, text="", bg=CARD, fg=MUTED, font=(FONT, 9), justify="left",
@@ -6520,10 +6875,13 @@ class App:
         protect = {n.lower() for n in self.settings["protect"]}
 
         def small_button(parent, text, command, primary=False):
-            return tk.Button(parent, text=text, command=command, bg=ACCENT if primary else PANEL,
-                             fg=ON_ACCENT if primary else TEXT, activebackground=BORDER,
-                             activeforeground=TEXT, relief="flat", bd=0, padx=14, pady=6,
-                             font=(FONT, 9, "bold" if primary else "normal"), cursor="hand2")
+            try:
+                return RoundButton(parent, text, command, primary=primary, padx=14, pady=7)
+            except Exception:
+                return tk.Button(parent, text=text, command=command, bg=ACCENT if primary else PANEL,
+                                 fg=ON_ACCENT if primary else TEXT, activebackground=BORDER,
+                                 activeforeground=TEXT, relief="flat", bd=0, padx=14, pady=6,
+                                 font=(FONT, 9, "bold" if primary else "normal"), cursor="hand2")
 
         tk.Label(win, text=tr("Escolha os apps que o Game Mode deve deixar mais lentos enquanto você joga."),
                  bg=BG, fg=MUTED, font=(FONT, 9)).pack(anchor="w", padx=20, pady=(16, 8))
