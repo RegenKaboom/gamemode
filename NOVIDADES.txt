@@ -1,14 +1,14 @@
-Version 2.7
-- New look inspired by Lyre: side menu, bigger titles, rounded power button and Ctrl+K search.
-- 11 themes (Dark, Light, Midnight, OLED, Ocean, Forest, Violet, Rose, Amber, Emerald, Sakura) and accent colors, in Options > Appearance.
-- Icon in the Windows tray (next to the clock) with a right-click menu, and a new app icon.
+Version 2.8
+- Fixed the three cards on the Game Mode screen: the big numbers now shrink to fit and long titles wrap to two lines instead of being cut off.
+- 6 new mods: Windows Game Mode, Mouse for games, Keyboard without popups, Shader cache, Monitor refresh rate and Windows startup. All but the shader cache have an Undo button.
+- Fixed: the backup of "Windows for games" was lost when the program was closed, so Undo could not restore the old values.
 
-Versão 2.7
-- Visual novo inspirado no Lyre: menu lateral, títulos maiores, botão de ligar redondo e busca com Ctrl+K.
-- 11 temas (Escuro, Claro, Meia-noite, OLED, Oceano, Floresta, Violeta, Rosa, Âmbar, Esmeralda, Sakura) e cores de destaque, em Opções > Aparência.
-- Ícone na bandeja do Windows (perto do relógio) com menu do botão direito, e um ícone novo.
+Versão 2.8
+- Conserto dos três cartões da tela de Game Mode: os números grandes encolhem até caber e os títulos compridos quebram em duas linhas, sem ficar cortados.
+- 6 mods novos: Modo Jogo do Windows, Mouse para jogos, Teclado sem popups, Cache de shaders, Taxa de atualização do monitor e Inicialização do Windows. Todos, menos o cache de shaders, têm botão de desfazer.
+- Corrigido: o backup de "Windows para jogos" se perdia ao fechar o programa, e o Desfazer não conseguia voltar aos valores antigos.
 
-Versión 2.7
-- Nuevo aspecto inspirado en Lyre: menú lateral, títulos más grandes, botón de encendido redondo y búsqueda con Ctrl+K.
-- 11 temas (Oscuro, Claro, Medianoche, OLED, Océano, Bosque, Violeta, Rosa, Ámbar, Esmeralda, Sakura) y colores de acento, en Opciones > Apariencia.
-- Icono en la bandeja de Windows (junto al reloj) con menú de clic derecho, y un icono nuevo.
+Versión 2.8
+- Arreglo de las tres tarjetas de la pantalla Game Mode: los números grandes se reducen hasta caber y los títulos largos pasan a dos líneas, sin quedar cortados.
+- 6 mods nuevos: Modo Juego de Windows, Ratón para juegos, Teclado sin ventanas emergentes, Caché de shaders, Frecuencia de actualización del monitor e Inicio de Windows. Todos menos la caché de shaders tienen botón de deshacer.
+- Corregido: la copia de seguridad de "Windows para juegos" se perdía al cerrar el programa y Deshacer no podía volver a los valores anteriores.

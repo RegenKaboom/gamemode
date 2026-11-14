@@ -80,6 +80,7 @@ if sys.platform != "win32":
     sys.exit(tr("Este programa só funciona no Windows."))
 
 import tkinter as tk
+import tkinter.font as tkfont
 from tkinter import messagebox, ttk
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # abre com dois cliques de qualquer pasta
@@ -159,7 +160,7 @@ POLL_ACTIVE_SECONDS = 3.0    # jogo aberto (menos trabalho enquanto você joga)
 RETRIM_SECONDS = 60.0
 POLL_IDLE_SLOW_SECONDS = 5.0  # depois de 1 min esperando o jogo, olha menos vezes
 IDLE_SLOW_AFTER = 60.0
-APP_VERSION = "2.7 (new look, tray icon, new icon)"
+APP_VERSION = "2.8 (card fix, 6 new mods)"
 UPDATE_REPO = "RegenKaboom/gamemode"                  # onde as versões novas são publicadas (GitHub Releases)
 UPDATE_MANIFEST_URL = f"https://github.com/{UPDATE_REPO}/releases/latest/download/latest.json"
 UPDATE_PAGE = f"https://github.com/{UPDATE_REPO}/releases/latest"
@@ -193,6 +194,13 @@ DEFAULT_SETTINGS = {
                else {"style": "dark", "accent": "cyan"}),         # visual estilo Feather/Badlion
     "hotkeys": {"gamemode": "none", "move": "none"},
     "gamebar_backup": "",        # como estava o Xbox Game Bar antes de desligar (JSON)
+    "mods_backup": {             # como estava cada ajuste antes de o programa mexer (JSON; "" = não mexeu)
+        "wgm": "",               # Modo Jogo do Windows
+        "mouse": "",             # Mouse para jogos
+        "kbd": "",               # Teclado sem popups
+        "hz": 0,                 # taxa do monitor antes da mudança (0 = não mexeu)
+        "startup": [],           # programas de inicialização que o Game Mode desativou
+    },
     "profiles_v": 0,
     "tray_show": True,       # ícone na bandeja do Windows (perto do relógio)
     "tray_close": True,      # fechar a janela deixa o programa na bandeja
@@ -305,6 +313,10 @@ def load_settings():
             saved = json.load(f)
         if isinstance(saved, dict):
             _merge_settings(settings, saved)
+            # o padrão é None, então o _merge_settings descartava o backup salvo (um dicionário)
+            old = (saved.get("win_tweaks") or {}).get("backup") if isinstance(saved.get("win_tweaks"), dict) else None
+            if isinstance(old, dict):
+                settings["win_tweaks"]["backup"] = old
     except (OSError, ValueError):
         pass
     return settings
@@ -3649,6 +3661,8 @@ class App:
             main.grid_columnconfigure(col, weight=1, uniform="tile")
         main.grid_rowconfigure(2, weight=1)
 
+        self._tiles = []                                # recriada junto com a tela (sem widgets velhos)
+        main.bind("<Configure>", lambda _e: self._fit_tiles(), add="+")
         self.tile_apps = self._tile(main, 0, tr("APPS DESACELERADOS"), WARN)
         self.tile_mem = self._tile(main, 1, tr("MEMÓRIA LIBERADA"), GREEN)
         self.tile_game = self._tile(main, 2, tr("JOGO"), ACCENT)
@@ -3703,18 +3717,66 @@ class App:
                   padx=(0 if col == 0 else 7, 0 if col == 2 else 7))
         top = tk.Frame(tile, bg=CARD)
         top.pack(fill="x", padx=18, pady=(16, 0))
-        tk.Label(top, text="\u25CF", bg=CARD, fg=accent, font=(FONT, 8)).pack(side="left")
-        tk.Label(top, text=title, bg=CARD, fg=MUTED, font=(FONT, 8, "bold")).pack(side="left", padx=(6, 0))
-        value = tk.Label(tile, text="0", bg=CARD, fg=accent, font=(FONT, 30, "bold"))
-        value.pack(anchor="w", padx=18, pady=(2, 0))
-        sub = tk.Label(tile, text=" ", bg=CARD, fg=MUTED, font=(FONT, 9))
-        sub.pack(anchor="w", padx=18, pady=(0, 16))
-        return value, sub, accent
+        tk.Label(top, text="\u25CF", bg=CARD, fg=accent, font=(FONT, 8)).pack(side="left", anchor="n",
+                                                                           pady=(1, 0))
+        name = tk.Label(top, text=title, bg=CARD, fg=MUTED, font=(FONT, 8, "bold"), justify="left",
+                        anchor="nw", wraplength=140, width=1, height=1)
+        name.pack(side="left", fill="x", expand=True, padx=(6, 0))
+        value = tk.Label(tile, text="0", bg=CARD, fg=accent, font=(FONT, 30, "bold"), anchor="w",
+                         width=1)                       # pede pouca largura; o texto se ajusta depois
+        value.pack(fill="x", padx=18, pady=(2, 0))
+        sub = tk.Label(tile, text=" ", bg=CARD, fg=MUTED, font=(FONT, 9), justify="left", anchor="nw",
+                       wraplength=140, width=1, height=2)
+        sub.pack(fill="x", padx=18, pady=(0, 16))
+        made = (value, sub, accent, name, tile)
+        self._tiles.append(made)
+        return made
+
+    def _tile_font(self, size):
+        cache = self.__dict__.setdefault("_tile_fonts", {})
+        if size not in cache:
+            cache[size] = tkfont.Font(root=self.root, family=FONT, size=size, weight="bold")
+        return cache[size]
+
+    def _fit_tiles(self):
+        """Os três cartões da tela de Game Mode nunca cortam o texto: o título quebra em duas
+        linhas, o número encolhe até caber e o texto de baixo quebra se for preciso."""
+        tiles = getattr(self, "_tiles", [])
+        try:
+            small = self._tile_font(8)
+            two_lines = False
+            for value, sub, _accent, name, frame in tiles:
+                width = frame.winfo_width()
+                if width < 80:                          # ainda não foi desenhado
+                    return
+                room = max(60, width - 36)
+                title_w = max(40, room - 20)
+                if small.measure(name.cget("text")) > title_w:
+                    two_lines = True
+            for value, sub, _accent, name, frame in tiles:
+                room = max(60, frame.winfo_width() - 36)
+                title_w = max(40, room - 20)
+                if int(float(str(name.cget("wraplength")))) != title_w:
+                    name.config(wraplength=title_w)
+                if int(str(name.cget("height") or 0)) != (2 if two_lines else 1):
+                    name.config(height=2 if two_lines else 1)
+                if int(float(str(sub.cget("wraplength")))) != room:
+                    sub.config(wraplength=room)
+                text = value.cget("text")
+                size = 30
+                while size > 11 and self._tile_font(size).measure(text) > room:
+                    size -= 1
+                if getattr(value, "_gm_size", None) != size:
+                    value.config(font=(FONT, size, "bold"))
+                    value._gm_size = size
+        except tk.TclError:
+            pass
 
     def _set_tile(self, tile, value, sub, dim=False):
-        label, sub_label, accent = tile
+        label, sub_label, accent = tile[0], tile[1], tile[2]
         self._cfg(label, text=value, fg=MUTED if dim else accent)
         self._cfg(sub_label, text=sub)
+        self._fit_tiles()
 
     # ---- aba Mods ----------------------------------------------------
 
@@ -4973,6 +5035,13 @@ class App:
         self._build_playtime_card(parent)
         self._build_gamebar_card(parent)
         self._build_hotkeys_card(parent)
+        for builder in (self._build_wgm_card, self._build_mouse_card, self._build_kbd_card,
+                        self._build_shadercache_card, self._build_refresh_card,
+                        self._build_startup_card):
+            try:                    # um cartão com problema não derruba a aba inteira
+                builder(parent)
+            except Exception:
+                write_error_log(tr("Cartão de mod não carregou:\n") + traceback.format_exc())
 
     def _build_gamebar_card(self, parent):
         body, _badge, self.gb_status, _gear = self._mod_card(
@@ -5031,6 +5100,310 @@ class App:
                          None, "hotkeys", lambda: None)
         self._auto_combo(grid, 1, tr("Ligar/desligar o Movement Helper"), "move", HOTKEY_LABELS, str,
                          None, "hotkeys", lambda: None)
+
+    # ---- 6 mods do Windows (só o registro do seu usuário; nada pede administrador) --------
+
+    def _reg_mod(self, parent, row, col, key, title, desc, accent, apply_text, is_on, do_on, do_restore,
+                 msg_on, msg_off, log_on, log_undo):
+        """Cartão 'Aplicar / Desfazer' para um ajuste de registro. O estado ORIGINAL fica guardado
+        em settings['mods_backup'][key]."""
+        body, badge, status, _gear = self._mod_card(parent, row, col, title, desc, accent)
+        buttons = tk.Frame(body, bg=CARD)
+        buttons.pack(anchor="w")
+        self._btn(buttons, apply_text, lambda: apply(), True).pack(side="left")
+        self._btn(buttons, tr("Desfazer"), lambda: undo()).pack(side="left", padx=8)
+
+        def refresh():
+            on = bool(is_on())
+            self._cfg(badge, text=tr("ATIVO") if on else tr("INATIVO"), fg=GREEN if on else MUTED)
+            self._status(status, "ok" if on else "info", msg_on if on else msg_off)
+
+        def apply():
+            backup = self.settings["mods_backup"]
+            try:
+                before = do_on()
+                if not backup[key]:                      # guarda só o estado ORIGINAL
+                    backup[key] = json.dumps(before)
+                save_settings(self.settings)
+                self.add_log("ok", log_on)
+            except Exception as exc:
+                self._status(status, "warn", tr('Não consegui mexer: {}').format(exc))
+                return
+            refresh()
+
+        def undo():
+            backup = self.settings["mods_backup"]
+            if not backup[key]:
+                self._status(status, "info", tr("Nada para desfazer: o programa não mudou nada."))
+                return
+            try:
+                do_restore(json.loads(backup[key]))
+                backup[key] = ""
+                save_settings(self.settings)
+                self.add_log("ok", log_undo)
+            except Exception as exc:
+                self._status(status, "warn", tr('Não consegui desfazer: {}').format(exc))
+                return
+            refresh()
+
+        refresh()
+
+    def _build_wgm_card(self, parent):
+        self._reg_mod(
+            parent, 8, 0, "wgm", tr("Modo Jogo do Windows"),
+            tr("Liga o Modo Jogo do próprio Windows, que evita que atualizações de driver e do sistema "
+               "atrapalhem a partida. Só mexe nas configurações do seu usuário e dá para desfazer."),
+            GREEN, tr("Ligar"), gm_extras.wgm_is_on, gm_extras.wgm_on, (lambda before: gm_extras.reg_restore(gm_extras.WGM_ITEMS, before)),
+            tr("Modo Jogo do Windows: ligado."), tr("Modo Jogo do Windows: como o Windows deixou."),
+            tr("Modo Jogo do Windows ligado."), tr("Modo Jogo do Windows: voltou ao que estava."))
+
+    def _build_mouse_card(self, parent):
+        self._reg_mod(
+            parent, 8, 1, "mouse", tr("Mouse para jogos"),
+            tr("Desliga o \"aprimorar precisão do ponteiro\" (aceleração do mouse), para o ponteiro andar "
+               "sempre a mesma distância quando você mexe a mão. Vale na hora e dá para desfazer."),
+            ACCENT, tr("Desligar aceleração"), gm_extras.mouse_is_raw, gm_extras.mouse_raw_on,
+            gm_extras.mouse_restore, tr("Aceleração do mouse: desligada."),
+            tr("Aceleração do mouse: como o Windows deixou."),
+            tr("Mouse para jogos: aceleração desligada."), tr("Mouse para jogos: voltou ao que estava."))
+
+    def _build_kbd_card(self, parent):
+        self._reg_mod(
+            parent, 9, 0, "kbd", tr("Teclado sem popups"),
+            tr("Desliga os atalhos que abrem o aviso de Teclas de Aderência (Shift 5 vezes), Teclas de "
+               "Filtro (Shift direito por 8 segundos) e Teclas de Alternância. Eles minimizam o jogo no "
+               "meio da partida. Dá para desfazer."),
+            PINK, tr("Desligar popups"), gm_extras.kbd_popups_off, gm_extras.kbd_off,
+            gm_extras.kbd_restore, tr("Popups do teclado: desligados."),
+            tr("Popups do teclado: como o Windows deixou."),
+            tr("Teclado sem popups: atalhos desligados."), tr("Teclado sem popups: voltou ao que estava."))
+
+    def _build_shadercache_card(self, parent):
+        body, _badge, self.sc_status, gear = self._mod_card(
+            parent, 9, 1, tr("Cache de shaders"),
+            tr("Apaga o cache de shaders do DirectX e da placa de vídeo (NVIDIA, AMD, Intel). Ajuda quando "
+               "o jogo trava ou tem artefatos depois de atualizar o driver. O jogo refaz o cache: a "
+               "primeira abertura pode ficar um pouco mais lenta. Não dá para desfazer."), TEAL)
+        buttons = tk.Frame(body, bg=CARD)
+        buttons.pack(anchor="w")
+        self.sc_buttons = [self._btn(buttons, tr("Procurar"), self.sc_scan_click, True),
+                           self._btn(buttons, tr("Apagar"), self.sc_delete_click)]
+        self.sc_buttons[0].pack(side="left")
+        self.sc_buttons[1].pack(side="left", padx=8)
+        self.sc_buttons[1].config(state="disabled")
+        self._sc_scan = None
+        pastas = "\n".join(f"\u2022 {label}: {path}" for label, path in gm_extras.shader_cache_roots())
+        tk.Label(gear, text=tr("Pastas olhadas:\n") + (pastas or tr("nenhuma encontrada")), bg=CARD,
+                 fg=MUTED, font=(FONT, 9), justify="left", wraplength=420).grid(row=0, column=0, sticky="w")
+
+    def sc_scan_click(self):
+        self._busy(self.sc_buttons, True)
+        self._status(self.sc_status, "info", tr("Procurando..."))
+
+        def done(result):
+            self._busy(self.sc_buttons[:1], False)
+            if isinstance(result, tuple):                # erro vindo do _run_bg
+                self._status(self.sc_status, "warn", result[1][0][1])
+                return
+            self._sc_scan = result
+            n = len(result["files"])
+            total = sum(size for _p, size in result["files"])
+            if not n:
+                self._status(self.sc_status, "ok", tr("Nenhum cache de shader encontrado."))
+                return
+            lines = [tr('Dá para liberar {} em {} arquivo(s):').format(gm_extras.human_size(total), n)]
+            lines += [f"\u2022 {label}: {gm_extras.human_size(size)} ({count})"
+                      for label, (count, size) in result["by"].items() if count]
+            self._status(self.sc_status, "info", "\n".join(lines))
+            self.sc_buttons[1].config(state="normal")
+
+        self._run_bg(gm_extras.scan_shader_cache, done)
+
+    def sc_delete_click(self):
+        scan = self._sc_scan
+        if not scan or not scan["files"]:
+            return
+        total = sum(size for _p, size in scan["files"])
+        if not messagebox.askyesno(
+                tr("Apagar cache de shaders"),
+                tr('Apagar {} arquivo(s) ({})?\nO jogo refaz o cache na próxima abertura.').format(
+                    len(scan["files"]), gm_extras.human_size(total))):
+            return
+        self._busy(self.sc_buttons, True)
+        self._status(self.sc_status, "info", tr("Apagando..."))
+        self._sc_scan = None
+
+        def done(result):
+            self._busy(self.sc_buttons[:1], False)
+            if not isinstance(result, tuple) or len(result) != 3:
+                self._status(self.sc_status, "warn", tr("Não consegui apagar."))
+                return
+            freed, ok, left = result
+            text = tr('Liberei {} ({} arquivo(s)).').format(gm_extras.human_size(freed), ok)
+            if left:
+                text += tr(' {} estavam em uso e ficaram.').format(left)
+            self._status(self.sc_status, "ok", text)
+            self.add_log("ok", text)
+
+        self._run_bg(lambda: gm_extras.delete_junk(scan), done)
+
+    def _build_refresh_card(self, parent):
+        body, self.hz_badge, self.hz_status, _gear = self._mod_card(
+            parent, 10, 0, tr("Taxa de atualização do monitor"),
+            tr("Coloca o monitor principal na maior taxa de atualização (Hz) que ele aceita na resolução "
+               "de agora. Muitos monitores de 144 Hz ou mais vêm de fábrica em 60 Hz. O Windows testa "
+               "antes de aplicar, e dá para voltar à taxa de antes."), WARN)
+        self.v_hz = tk.StringVar()
+        row = tk.Frame(body, bg=CARD)
+        row.pack(anchor="w")
+        self.hz_combo = self._combo(row, self.v_hz, [], width=10)
+        self.hz_combo.pack(side="left", padx=(0, 10))
+        self._btn(row, tr("Aplicar"), self.hz_apply_click, True).pack(side="left")
+        self._btn(row, tr("Desfazer"), self.hz_undo_click).pack(side="left", padx=8)
+        self._hz_refresh(select_best=True)
+
+    def _hz_refresh(self, select_best=False):
+        try:
+            options = gm_extras.refresh_options()
+            now = gm_extras.refresh_current()
+        except Exception as exc:
+            self._cfg(self.hz_badge, text="", fg=MUTED)
+            self._status(self.hz_status, "warn", tr('Não consegui ler o monitor: {}').format(exc))
+            return
+        self.hz_combo.config(values=[f"{hz} Hz" for hz in options])
+        if select_best and options:
+            self.v_hz.set(f"{options[-1]} Hz")
+        self._cfg(self.hz_badge, text=f"{now} Hz" if now else "", fg=GREEN if options and now == options[-1] else MUTED)
+        top = options[-1] if options else 0
+        if now and top and now < top:
+            self._status(self.hz_status, "info", tr('Agora: {} Hz. O monitor aceita até {} Hz.').format(now, top))
+        elif now:
+            self._status(self.hz_status, "ok", tr('Agora: {} Hz (o máximo que o monitor aceita aqui).').format(now))
+
+    def _hz_selected(self):
+        try:
+            return int(self.v_hz.get().split()[0])
+        except (ValueError, IndexError):
+            return 0
+
+    def hz_apply_click(self):
+        hz = self._hz_selected()
+        if not hz:
+            self._status(self.hz_status, "info", tr("Escolha uma taxa na lista."))
+            return
+        try:
+            ok, before, text = gm_extras.refresh_set(hz)
+        except Exception as exc:
+            self._status(self.hz_status, "warn", tr('Não consegui mexer: {}').format(exc))
+            return
+        if ok and before and before != hz and not self.settings["mods_backup"]["hz"]:
+            self.settings["mods_backup"]["hz"] = int(before)      # guarda só a taxa ORIGINAL
+            save_settings(self.settings)
+        self.add_log("ok" if ok else "warn", text)
+        self._hz_refresh()
+        self._status(self.hz_status, "ok" if ok else "warn", text)
+
+    def hz_undo_click(self):
+        old = int(self.settings["mods_backup"]["hz"] or 0)
+        if not old:
+            self._status(self.hz_status, "info", tr("Nada para desfazer: o programa não mudou nada."))
+            return
+        try:
+            ok, _before, text = gm_extras.refresh_set(old)
+        except Exception as exc:
+            self._status(self.hz_status, "warn", tr('Não consegui desfazer: {}').format(exc))
+            return
+        if ok:
+            self.settings["mods_backup"]["hz"] = 0
+            save_settings(self.settings)
+        self.add_log("ok" if ok else "warn", text)
+        self._hz_refresh(select_best=True)
+        self._status(self.hz_status, "ok" if ok else "warn", text)
+
+    def _build_startup_card(self, parent):
+        body, self.su_badge, self.su_status, _gear = self._mod_card(
+            parent, 10, 1, tr("Inicialização do Windows"),
+            tr("Programas que abrem junto com o Windows e deixam o PC mais lento para ligar e para jogar. "
+               "Desativar não apaga nada: é o mesmo botão do Gerenciador de Tarefas, e dá para reativar "
+               "quando quiser. Mostra só os programas do seu usuário."), PINK)
+        frame = tk.Frame(body, bg=CARD, highlightthickness=1, highlightbackground=BORDER)
+        frame.pack(fill="x")
+        self.su_tree = ttk.Treeview(frame, columns=("name", "state"), show="headings", height=5,
+                                    selectmode="extended")
+        self.su_tree.heading("name", text=tr("Programa"))
+        self.su_tree.heading("state", text=tr("Estado"))
+        self.su_tree.column("name", width=220, anchor="w", stretch=True)
+        self.su_tree.column("state", width=90, anchor="center", stretch=False)
+        self.su_tree.tag_configure("off", foreground=MUTED)
+        self.su_tree.pack(fill="x")
+        buttons = tk.Frame(body, bg=CARD)
+        buttons.pack(anchor="w", pady=(8, 0))
+        self._btn(buttons, tr("Desativar"), lambda: self._su_toggle(False), True).pack(side="left")
+        self._btn(buttons, tr("Reativar"), lambda: self._su_toggle(True)).pack(side="left", padx=8)
+        self._btn(buttons, tr("Desfazer tudo"), self._su_undo_all).pack(side="left")
+        self._su_refresh()
+
+    def _su_refresh(self):
+        try:
+            rows = gm_extras.startup_list(exclude=(RUN_NAME,))
+        except Exception as exc:
+            self._status(self.su_status, "warn", tr('Não consegui ler a lista: {}').format(exc))
+            return
+        self.su_tree.delete(*self.su_tree.get_children())
+        for name, _command, enabled in rows:
+            self.su_tree.insert("", "end", iid=name, values=(name, tr("Ligado") if enabled else tr("Desligado")),
+                                tags=() if enabled else ("off",))
+        off = sum(1 for _n, _c, enabled in rows if not enabled)
+        self._cfg(self.su_badge, text=tr('{} desligado(s)').format(off) if off else "", fg=GREEN)
+        if not rows:
+            self._status(self.su_status, "info", tr("Nenhum programa do seu usuário abre com o Windows."))
+        else:
+            self._status(self.su_status, "info", tr("Escolha um ou mais programas e clique em Desativar."))
+
+    def _su_toggle(self, enabled):
+        names = list(self.su_tree.selection())
+        if not names:
+            self._status(self.su_status, "info", tr("Escolha um programa na lista."))
+            return
+        done, saved = [], self.settings["mods_backup"]["startup"]
+        for name in names:
+            try:
+                gm_extras.startup_set(name, enabled)
+            except Exception as exc:
+                self._status(self.su_status, "warn", tr('Não consegui mexer: {}').format(exc))
+                break
+            done.append(name)
+            if not enabled and name not in saved:
+                saved.append(name)
+            elif enabled and name in saved:
+                saved.remove(name)
+        save_settings(self.settings)
+        self._su_refresh()
+        if done:
+            text = (tr('Desativado na inicialização: {}') if not enabled
+                    else tr('Reativado na inicialização: {}')).format(", ".join(done))
+            self.add_log("ok", text)
+            self._status(self.su_status, "ok", text)
+
+    def _su_undo_all(self):
+        saved = self.settings["mods_backup"]["startup"]
+        if not saved:
+            self._status(self.su_status, "info", tr("Nada para desfazer: o programa não mudou nada."))
+            return
+        back = []
+        for name in list(saved):
+            try:
+                gm_extras.startup_set(name, True)
+                back.append(name)
+            except Exception:
+                pass
+        saved[:] = [n for n in saved if n not in back]
+        save_settings(self.settings)
+        self._su_refresh()
+        text = tr('Reativado na inicialização: {}').format(", ".join(back)) if back \
+            else tr("Não consegui desfazer.")
+        self.add_log("ok" if back else "warn", text)
+        self._status(self.su_status, "ok" if back else "warn", text)
 
     def _build_clean_card(self, parent):
         body, _badge, self.clean_status, gear = self._mod_card(

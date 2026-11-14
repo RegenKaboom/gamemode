@@ -514,6 +514,343 @@ def gamebar_restore(before):
             pass
 
 
+# ------------------------------------------------------------- mods extras do Windows
+# Tudo aqui mexe só no registro do SEU usuário (HKCU): não pede administrador. Cada função que
+# muda algo devolve o que havia antes, para o programa guardar e poder desfazer.
+_HKCU_SZ, _HKCU_DWORD = 1, 4          # REG_SZ, REG_DWORD
+
+
+def reg_read(items):
+    """{'caminho|nome': [tipo, valor] ou None} dos valores pedidos (itens = [(caminho, nome)])."""
+    import winreg
+    out = {}
+    for path, name in items:
+        try:
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, path) as key:
+                value, kind = winreg.QueryValueEx(key, name)
+            out[_gb_id(path, name)] = [kind, value]
+        except OSError:
+            out[_gb_id(path, name)] = None
+    return out
+
+
+def reg_write(changes):
+    """changes = [(caminho, nome, tipo, valor)]."""
+    import winreg
+    for path, name, kind, value in changes:
+        with winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, path, 0, winreg.KEY_SET_VALUE) as key:
+            winreg.SetValueEx(key, name, 0, kind, value)
+
+
+def reg_restore(items, before):
+    """Volta ao que estava (before vem de reg_read). Valor que não existia antes é apagado."""
+    import winreg
+    for path, name in items:
+        old = (before or {}).get(_gb_id(path, name))
+        try:
+            with winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, path, 0, winreg.KEY_SET_VALUE) as key:
+                if old is None:
+                    try:
+                        winreg.DeleteValue(key, name)
+                    except OSError:
+                        pass
+                else:
+                    winreg.SetValueEx(key, name, 0, int(old[0]), old[1])
+        except OSError:
+            pass
+
+
+# ---- 1. Modo Jogo do Windows
+WGM_ITEMS = [(r"Software\Microsoft\GameBar", "AllowAutoGameMode"),
+             (r"Software\Microsoft\GameBar", "AutoGameModeEnabled")]
+
+
+def wgm_is_on():
+    try:
+        got = reg_read(WGM_ITEMS)
+        return all(v is not None and int(v[1]) == 1 for v in got.values())
+    except Exception:
+        return False
+
+
+def wgm_on():
+    before = reg_read(WGM_ITEMS)
+    reg_write([(path, name, _HKCU_DWORD, 1) for path, name in WGM_ITEMS])
+    return before
+
+
+# ---- 2. Mouse para jogos (sem "aprimorar precisão do ponteiro")
+MOUSE_ITEMS = [(r"Control Panel\Mouse", "MouseSpeed"),
+               (r"Control Panel\Mouse", "MouseThreshold1"),
+               (r"Control Panel\Mouse", "MouseThreshold2")]
+_MOUSE_DEFAULT = (1, 6, 10)           # o que o Windows usa com a precisão ligada
+SPI_SETMOUSE, SPIF_UPDATE_AND_SEND = 0x0004, 0x0003
+
+
+def _spi_mouse(values):
+    """Aplica na hora (sem sair do Windows). Falhar aqui não é grave: o registro já vale no próximo login."""
+    try:
+        import ctypes
+        arr = (ctypes.c_int * 3)(*values)
+        return bool(ctypes.windll.user32.SystemParametersInfoW(SPI_SETMOUSE, 0, arr, SPIF_UPDATE_AND_SEND))
+    except Exception:
+        return False
+
+
+def mouse_is_raw():
+    try:
+        got = reg_read(MOUSE_ITEMS)[_gb_id(*MOUSE_ITEMS[0])]
+        return got is not None and str(got[1]).strip() == "0"
+    except Exception:
+        return False
+
+
+def mouse_raw_on():
+    before = reg_read(MOUSE_ITEMS)
+    reg_write([(path, name, _HKCU_SZ, "0") for path, name in MOUSE_ITEMS])
+    _spi_mouse((0, 0, 0))
+    return before
+
+
+def mouse_restore(before):
+    reg_restore(MOUSE_ITEMS, before)
+    values = []
+    for (path, name), default in zip(MOUSE_ITEMS, _MOUSE_DEFAULT):
+        old = (before or {}).get(_gb_id(path, name))
+        try:
+            values.append(int(str(old[1]).strip()) if old else default)
+        except ValueError:
+            values.append(default)
+    _spi_mouse(values)
+
+
+# ---- 3. Teclado sem popups (Teclas de Aderência, Filtro e Alternância)
+KBD_ITEMS = [(r"Control Panel\Accessibility\StickyKeys", "Flags"),
+             (r"Control Panel\Accessibility\Keyboard Response", "Flags"),
+             (r"Control Panel\Accessibility\ToggleKeys", "Flags")]
+_KBD_DEFAULT = (510, 126, 62)         # padrão do Windows
+_HOTKEY_ACTIVE = 0x4                  # o atalho (Shift 5x, Shift direito 8 s, Num Lock 5 s) que abre o popup
+# (leitura, gravação, quantos campos a estrutura tem): STICKYKEYS e TOGGLEKEYS têm 2; FILTERKEYS tem 6
+_KBD_SPI = ((0x003A, 0x003B, 2), (0x0032, 0x0033, 6), (0x0034, 0x0035, 2))
+
+
+def _kbd_flags(got, index):
+    item = got.get(_gb_id(*KBD_ITEMS[index]))
+    try:
+        return int(str(item[1]).strip()) if item else _KBD_DEFAULT[index]
+    except ValueError:
+        return _KBD_DEFAULT[index]
+
+
+def _spi_kbd(flag_list):
+    """Aplica na hora. Lê a estrutura atual, troca só o campo de flags e grava de volta."""
+    try:
+        import ctypes
+        from ctypes import wintypes
+        user32 = ctypes.windll.user32
+        for (get, put, count), flags in zip(_KBD_SPI, flag_list):
+            struct = (wintypes.DWORD * count)()
+            struct[0] = ctypes.sizeof(struct)           # cbSize
+            user32.SystemParametersInfoW(get, ctypes.sizeof(struct), struct, 0)
+            struct[0] = ctypes.sizeof(struct)
+            struct[1] = flags                           # dwFlags
+            user32.SystemParametersInfoW(put, ctypes.sizeof(struct), struct, 0)
+        return True
+    except Exception:
+        return False
+
+
+def kbd_popups_off():
+    """True se o atalho que abre o popup está desligado nos três recursos."""
+    try:
+        got = reg_read(KBD_ITEMS)
+        return all(not (_kbd_flags(got, i) & _HOTKEY_ACTIVE) for i in range(3))
+    except Exception:
+        return False
+
+
+def kbd_off():
+    before = reg_read(KBD_ITEMS)
+    new = [_kbd_flags(before, i) & ~_HOTKEY_ACTIVE for i in range(3)]   # só o atalho; o recurso em si não muda
+    reg_write([(path, name, _HKCU_SZ, str(value)) for (path, name), value in zip(KBD_ITEMS, new)])
+    _spi_kbd(new)
+    return before
+
+
+def kbd_restore(before):
+    reg_restore(KBD_ITEMS, before)
+    got = reg_read(KBD_ITEMS)
+    _spi_kbd([_kbd_flags(got, i) for i in range(3)])
+
+
+# ---- 4. Cache de shaders (some e o jogo refaz; não há o que desfazer)
+def shader_cache_roots():
+    """[(nome, pasta)] dos caches de shader da placa de vídeo e do DirectX. Só as que existem."""
+    env = os.environ
+    local = env.get("LOCALAPPDATA", "")
+    if not local:
+        return []
+    low = os.path.join(os.path.dirname(local), "LocalLow")
+    cands = [
+        ("DirectX", os.path.join(local, "D3DSCache")),
+        ("NVIDIA (DirectX)", os.path.join(local, "NVIDIA", "DXCache")),
+        ("NVIDIA (OpenGL)", os.path.join(local, "NVIDIA", "GLCache")),
+        ("NVIDIA (drivers)", os.path.join(low, "NVIDIA", "PerDriverVersion", "DXCache")),
+        ("AMD (DirectX)", os.path.join(local, "AMD", "DxCache")),
+        ("AMD (OpenGL)", os.path.join(local, "AMD", "GLCache")),
+        ("AMD (Vulkan)", os.path.join(local, "AMD", "VkCache")),
+        ("Intel", os.path.join(local, "Intel", "ShaderCache")),
+    ]
+    seen, out = set(), []
+    for label, path in cands:
+        key = os.path.realpath(path).lower()
+        if os.path.isdir(path) and key not in seen:
+            seen.add(key)
+            out.append((label, path))
+    return out
+
+
+def scan_shader_cache():
+    """Mesma busca da limpeza de temporários, mas sem limite de idade (o cache todo)."""
+    return scan_junk(shader_cache_roots(), min_age_hours=0)
+
+
+# ---- 5. Taxa de atualização do monitor (monitor principal)
+def _devmode_class():
+    import ctypes
+    from ctypes import wintypes
+
+    class DEVMODEW(ctypes.Structure):
+        _fields_ = [("dmDeviceName", ctypes.c_wchar * 32), ("dmSpecVersion", wintypes.WORD),
+                    ("dmDriverVersion", wintypes.WORD), ("dmSize", wintypes.WORD),
+                    ("dmDriverExtra", wintypes.WORD), ("dmFields", wintypes.DWORD),
+                    ("dmPositionX", ctypes.c_long), ("dmPositionY", ctypes.c_long),
+                    ("dmDisplayOrientation", wintypes.DWORD), ("dmDisplayFixedOutput", wintypes.DWORD),
+                    ("dmColor", ctypes.c_short), ("dmDuplex", ctypes.c_short),
+                    ("dmYResolution", ctypes.c_short), ("dmTTOption", ctypes.c_short),
+                    ("dmCollate", ctypes.c_short), ("dmFormName", ctypes.c_wchar * 32),
+                    ("dmLogPixels", wintypes.WORD), ("dmBitsPerPel", wintypes.DWORD),
+                    ("dmPelsWidth", wintypes.DWORD), ("dmPelsHeight", wintypes.DWORD),
+                    ("dmDisplayFlags", wintypes.DWORD), ("dmDisplayFrequency", wintypes.DWORD),
+                    ("dmICMMethod", wintypes.DWORD), ("dmICMIntent", wintypes.DWORD),
+                    ("dmMediaType", wintypes.DWORD), ("dmDitherType", wintypes.DWORD),
+                    ("dmReserved1", wintypes.DWORD), ("dmReserved2", wintypes.DWORD),
+                    ("dmPanningWidth", wintypes.DWORD), ("dmPanningHeight", wintypes.DWORD)]
+    return DEVMODEW
+
+
+ENUM_CURRENT_SETTINGS = -1
+DM_DISPLAYFREQUENCY, DM_INTERLACED = 0x400000, 0x2
+CDS_UPDATEREGISTRY, CDS_TEST = 0x1, 0x2
+
+
+def _current_mode():
+    import ctypes
+    DEVMODEW = _devmode_class()
+    dm = DEVMODEW()
+    dm.dmSize = ctypes.sizeof(DEVMODEW)
+    if not ctypes.windll.user32.EnumDisplaySettingsW(None, ENUM_CURRENT_SETTINGS, ctypes.byref(dm)):
+        raise OSError(tr("o Windows não disse a configuração atual da tela"))
+    return dm
+
+
+def refresh_current():
+    """Taxa atual do monitor principal, em Hz (0 se não deu para ler)."""
+    try:
+        return int(_current_mode().dmDisplayFrequency)
+    except Exception:
+        return 0
+
+
+def refresh_options():
+    """Taxas (Hz) que o monitor principal aceita na resolução e cores de agora, da menor para a maior."""
+    import ctypes
+    DEVMODEW = _devmode_class()
+    now = _current_mode()
+    found, index = set(), 0
+    while index < 400:
+        dm = DEVMODEW()
+        dm.dmSize = ctypes.sizeof(DEVMODEW)
+        if not ctypes.windll.user32.EnumDisplaySettingsW(None, index, ctypes.byref(dm)):
+            break
+        index += 1
+        if (dm.dmPelsWidth, dm.dmPelsHeight, dm.dmBitsPerPel) != \
+                (now.dmPelsWidth, now.dmPelsHeight, now.dmBitsPerPel):
+            continue
+        if dm.dmDisplayFlags & DM_INTERLACED or dm.dmDisplayFrequency < 24:   # 0 e 1 = "padrão da placa"
+            continue
+        found.add(int(dm.dmDisplayFrequency))
+    found.add(int(now.dmDisplayFrequency))
+    return sorted(hz for hz in found if hz >= 24)
+
+
+def refresh_set(hz):
+    """Muda a taxa do monitor principal. Retorna (ok, taxa_de_antes, texto). Testa antes de aplicar."""
+    import ctypes
+    hz = int(hz)
+    dm = _current_mode()
+    before = int(dm.dmDisplayFrequency)
+    if hz == before:
+        return True, before, tr("O monitor já está em {} Hz.").format(hz)
+    dm.dmFields |= DM_DISPLAYFREQUENCY
+    dm.dmDisplayFrequency = hz
+    user32 = ctypes.windll.user32
+    if user32.ChangeDisplaySettingsExW(None, ctypes.byref(dm), None, CDS_TEST, None) != 0:
+        return False, before, tr("O monitor não aceita {} Hz nesta resolução.").format(hz)
+    code = user32.ChangeDisplaySettingsExW(None, ctypes.byref(dm), None, CDS_UPDATEREGISTRY, None)
+    if code != 0:
+        return False, before, tr("O Windows não aplicou {} Hz (código {}).").format(hz, code)
+    return True, before, tr("Monitor em {} Hz (antes: {} Hz).").format(hz, before)
+
+
+# ---- 6. Inicialização do Windows (programas que abrem junto com o Windows, só deste usuário)
+RUN_PATH = r"Software\Microsoft\Windows\CurrentVersion\Run"
+APPROVED_PATH = r"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run"
+
+
+def startup_list(exclude=()):
+    """[(nome, comando, ligado)] do 'iniciar com o Windows' deste usuário, sem os nomes em exclude."""
+    import winreg
+    skip = {x.lower() for x in exclude}
+    out = []
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_PATH) as run:
+            index = 0
+            while True:
+                try:
+                    name, command, _kind = winreg.EnumValue(run, index)
+                except OSError:
+                    break
+                index += 1
+                if name.lower() in skip:
+                    continue
+                enabled = True
+                try:
+                    with winreg.OpenKey(winreg.HKEY_CURRENT_USER, APPROVED_PATH) as ap:
+                        data = winreg.QueryValueEx(ap, name)[0]
+                    enabled = not (isinstance(data, (bytes, bytearray)) and data and data[0] & 1)
+                except OSError:
+                    pass                       # sem registro de aprovação = ligado
+                out.append((name, str(command), enabled))
+    except OSError:
+        pass
+    return sorted(out, key=lambda r: r[0].lower())
+
+
+def startup_set(name, enabled):
+    """Liga ou desliga uma entrada do mesmo jeito que o Gerenciador de Tarefas: não apaga nada,
+    só marca em StartupApproved. Por isso dá para reativar a qualquer hora."""
+    import struct
+    import winreg
+    if enabled:
+        data = struct.pack("<II", 2, 0) + bytes(4)
+    else:
+        filetime = int((time.time() + 11644473600) * 10_000_000)     # agora, no formato do Windows
+        data = struct.pack("<IQ", 3, filetime)
+    with winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, APPROVED_PATH, 0, winreg.KEY_SET_VALUE) as key:
+        winreg.SetValueEx(key, name, 0, winreg.REG_BINARY, data)
+
+
 # ------------------------------------------------------------- atualização automática
 import hashlib
 import urllib.request
