@@ -160,7 +160,7 @@ POLL_ACTIVE_SECONDS = 3.0    # jogo aberto (menos trabalho enquanto você joga)
 RETRIM_SECONDS = 60.0
 POLL_IDLE_SLOW_SECONDS = 5.0  # depois de 1 min esperando o jogo, olha menos vezes
 IDLE_SLOW_AFTER = 60.0
-APP_VERSION = "2.9 (visual refresh)"
+APP_VERSION = "2.10 (mods page fix)"
 UPDATE_REPO = "RegenKaboom/gamemode"                  # onde as versões novas são publicadas (GitHub Releases)
 UPDATE_MANIFEST_URL = f"https://github.com/{UPDATE_REPO}/releases/latest/download/latest.json"
 UPDATE_PAGE = f"https://github.com/{UPDATE_REPO}/releases/latest"
@@ -3215,87 +3215,23 @@ def _bg_of(widget, default=None):
 
 
 def _card_pad():
-    """Margem que o cartão arredondado tira dos dois lados do conteúdo."""
-    return 2 * RoundCard.INSET
+    """Cartão simples: não há moldura extra tirando espaço do conteúdo."""
+    return 0
 
 
-def _card_shell(parent, stretch=False, **kw):
-    """(peça para colocar na grade, corpo onde ficam os filhos). Se o cartão arredondado não puder
-    ser criado, volta ao quadro simples de antes: o programa nunca deixa de abrir por causa disso."""
-    try:
-        shell = RoundCard(parent, stretch=stretch, **kw)
-        return shell, shell.body
-    except Exception:
-        plain = tk.Frame(parent, bg=kw.get("fill") or CARD, width=kw.get("width", 1),
-                         highlightthickness=1, highlightbackground=BORDER)
-        return plain, plain
-
-
-class RoundCard(tk.Canvas):
-    """Cartão de cantos arredondados. O conteúdo vai dentro de .body (um Frame comum).
-    stretch=True: o conteúdo ocupa a altura que a tela der (ex.: a tabela)."""
-    INSET = 6
-
-    def __init__(self, parent, radius=14, stretch=False, min_height=1, width=1, fill=None, border=None):
-        self._fill = fill or CARD
-        self._border = border or BORDER
-        self._outer = _bg_of(parent)
-        super().__init__(parent, width=width, height=min_height, bg=self._outer,
-                         highlightthickness=0, bd=0)
-        self.radius, self.stretch = radius, stretch
-        self.body = tk.Frame(self, bg=self._fill)
-        self._pic = self.create_image(0, 0, anchor="nw")
-        self._win = self.create_window(self.INSET, self.INSET, window=self.body, anchor="nw")
-        self._img, self._size, self._job, self._want = None, (0, 0), None, 0
-        self.bind("<Configure>", self._on_canvas)
-        self.bind("<Destroy>", self._on_destroy)
-        if not stretch:
-            self.body.bind("<Configure>", self._on_body)
-
-    def _on_body(self, _event=None):
-        need = self.body.winfo_reqheight() + 2 * self.INSET
-        if need != self._want:
-            self._want = need
-            self.config(height=need)
-
-    def _on_canvas(self, event):
-        inner_w = max(1, event.width - 2 * self.INSET)
-        if self.stretch:
-            self.itemconfigure(self._win, width=inner_w, height=max(1, event.height - 2 * self.INSET))
-        else:
-            self.itemconfigure(self._win, width=inner_w)
-        if (event.width, event.height) != self._size:
-            self._size = (event.width, event.height)
-            if self._img is None:
-                self._paint()
-            else:
-                if self._job:
-                    self.after_cancel(self._job)
-                self._job = self.after(40, self._paint)
-
-    def _on_destroy(self, _event=None):
-        if self._job:
-            try:
-                self.after_cancel(self._job)
-            except tk.TclError:
-                pass
-
-    def _paint(self):
-        self._job = None
-        w, h = self._size
-        if w < 8 or h < 8:
-            return
-        try:
-            img = round_image(self, w, h, self.radius, self._fill, self._fill, self._border, self._outer)
-            self.itemconfigure(self._pic, image=img)
-            self._img = img
-        except tk.TclError:
-            return
-        except Exception:               # sem a imagem, um retângulo simples: nunca fica sem fundo
-            self.delete("plain")
-            self.create_rectangle(0, 0, w - 1, h - 1, fill=self._fill, outline=self._border, tags="plain")
-            self.tag_lower("plain")
-            self._img = False
+def _card_shell(parent, stretch=False, min_height=1, width=1, fill=None, border=None):
+    """Quadro do cartão: cantos retos, borda de 1 pixel. (Um desenho de cantos arredondados foi
+    tentado aqui, mas não dava o tamanho certo ao conteúdo em alguns casos; este é o que sempre
+    funcionou.) 'stretch' deixa o cartão crescer com a grade (ex.: a tabela de apps); sem isso,
+    um 'width' ou 'min_height' explícito trava o tamanho do cartão no que os filhos pedirem."""
+    frame = tk.Frame(parent, bg=fill or CARD, highlightthickness=1, highlightbackground=border or BORDER)
+    if width > 1:                       # largura fixa (ex.: o painel do botão de ligar, 300 px);
+        frame.config(width=width)       # a altura ainda segue o "sticky" de quem usar grid()
+        frame.pack_propagate(False)
+    if min_height > 1 and not stretch:  # altura mínima; não se aplica quando a grade já estica o
+        frame.config(height=min_height)  # cartão (ex.: a tabela de apps, que cresce com a janela)
+        frame.pack_propagate(False)
+    return frame, frame
 
 
 class RoundButton(tk.Canvas):
@@ -3804,7 +3740,6 @@ class App:
         style.configure("Treeview", background=CARD, fieldbackground=CARD, foreground=TEXT,
                         borderwidth=0, rowheight=32, font=(FONT, 10), bordercolor=CARD,
                         lightcolor=CARD, darkcolor=CARD)
-        style.layout("Treeview", [("Treeview.treearea", {"sticky": "nswe"})])   # sem a borda branca de foco
         style.configure("Treeview.Heading", background=head_bg, foreground=MUTED, relief="flat",
                         borderwidth=0, padding=(8, 8), font=(FONT, 9, "bold"))
         style.map("Treeview", background=[("selected", SEL)], foreground=[("selected", TEXT)])

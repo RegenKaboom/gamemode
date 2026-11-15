@@ -1,14 +1,8 @@
-Version 2.9
-- Visual refresh: rounded cards and buttons with smooth edges, buttons that react to the mouse, a colored pill on the open page in the side menu and a new brand mark.
-- Deeper dark theme with clearer separation between the background and the cards. The other themes keep their colors.
-- Cleaner tables (no more white outline) and a thin scroll bar. Nothing changed in the layout.
+Version 2.10
+- Fixed: the Mods tab and the three cards on the Game Mode screen could show up completely empty. The rounded corners introduced in 2.9 are gone from these cards (square corners again); buttons, the side menu and the app icon keep the new look.
 
-Versão 2.9
-- Visual renovado: cartões e botões arredondados com bordas suaves, botões que reagem ao mouse, uma pílula colorida na página aberta do menu lateral e uma nova marca.
-- Tema escuro mais profundo, com mais separação entre o fundo e os cartões. Os outros temas mantêm as cores.
-- Tabelas mais limpas (sem o contorno branco) e barra de rolagem fina. O layout não mudou.
+Versão 2.10
+- Corrigido: a aba Mods e os três cartões da tela de Game Mode podiam aparecer totalmente vazios. Os cantos arredondados desses cartões, da versão 2.9, saíram (cantos retos de novo); os botões, o menu lateral e o ícone do app mantêm o visual novo.
 
-Versión 2.9
-- Aspecto renovado: tarjetas y botones redondeados con bordes suaves, botones que reaccionan al ratón, una píldora de color en la página abierta del menú lateral y una nueva marca.
-- Tema oscuro más profundo, con más separación entre el fondo y las tarjetas. Los otros temas mantienen sus colores.
-- Tablas más limpias (sin el contorno blanco) y barra de desplazamiento fina. El diseño no cambió.
+Versión 2.10
+- Corregido: la pestaña Mods y las tres tarjetas de la pantalla Game Mode podían aparecer totalmente vacías. Las esquinas redondeadas de esas tarjetas, de la versión 2.9, se quitaron (esquinas rectas de nuevo); los botones, el menú lateral y el icono de la app mantienen el aspecto nuevo.
