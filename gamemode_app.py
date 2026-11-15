@@ -49,6 +49,7 @@ if __name__ == "__main__" and not (getattr(sys, "frozen", False) or "__compiled_
     sys.exit(0)
 
 import atexit
+import base64
 import ctypes
 import gc
 import json
@@ -160,7 +161,7 @@ POLL_ACTIVE_SECONDS = 3.0    # jogo aberto (menos trabalho enquanto você joga)
 RETRIM_SECONDS = 60.0
 POLL_IDLE_SLOW_SECONDS = 5.0  # depois de 1 min esperando o jogo, olha menos vezes
 IDLE_SLOW_AFTER = 60.0
-APP_VERSION = "2.10 (mods page fix)"
+APP_VERSION = "2.11 (tray + win tweaks fix)"
 UPDATE_REPO = "RegenKaboom/gamemode"                  # onde as versões novas são publicadas (GitHub Releases)
 UPDATE_MANIFEST_URL = f"https://github.com/{UPDATE_REPO}/releases/latest/download/latest.json"
 UPDATE_PAGE = f"https://github.com/{UPDATE_REPO}/releases/latest"
@@ -932,6 +933,8 @@ try:
     _GetLong.restype = ctypes.c_ssize_t
     _SetLong.argtypes = [wintypes.HWND, ctypes.c_int, ctypes.c_ssize_t]
     _SetLong.restype = ctypes.c_ssize_t
+    user32.ShowWindow.argtypes = [wintypes.HWND, ctypes.c_int]
+    user32.ShowWindow.restype = wintypes.BOOL
 except Exception as _exc:
     write_error_log(tr("Camada sobre a tela sem API: ") + repr(_exc))
 
@@ -2067,16 +2070,15 @@ def win_tweaks_active():
 ADMIN_OK, ADMIN_BAD_ARGS, ADMIN_REG_ERROR, ADMIN_DENIED = 0, 2, 3, 5
 ADMIN_TEXT = {ADMIN_BAD_ARGS: tr("pedido inválido"), ADMIN_REG_ERROR: tr("o Windows recusou mexer no registro"),
               ADMIN_DENIED: tr("acesso negado")}
-_TOKEN_TEXT = re.compile(r"^[A-Za-z0-9 ._-]{0,64}$")
-
-
 def tweak_token(value):
-    """Valor do registro -> texto curto para a linha de comando: 'd' apagar, 'i123' número, 'sHigh' texto."""
+    """Valor do registro -> texto curto para a linha de comando: 'd' apagar, 'i123' número, 'b...' texto
+    (em base64, para aceitar qualquer texto que já estivesse no registro antes, sem risco de o
+    'Desfazer' recusar um valor antigo com espaços ou acentos e falhar silenciosamente)."""
     if value is None:
         return "d"
     if isinstance(value, int):
         return f"i{int(value)}"
-    return f"s{value}"
+    return "b" + base64.urlsafe_b64encode(str(value).encode("utf-8")).decode("ascii")
 
 
 def parse_tweak_token(token):
@@ -2085,13 +2087,20 @@ def parse_tweak_token(token):
         return ("d", None)
     if len(token) >= 2 and token[0] == "i" and token[1:].isdigit() and int(token[1:]) <= 0xFFFFFFFF:
         return ("i", int(token[1:]))
-    if token[:1] == "s" and _TOKEN_TEXT.match(token[1:]):
-        return ("s", token[1:])
+    if token[:1] == "b":
+        try:
+            return ("s", base64.urlsafe_b64decode(token[1:].encode("ascii")).decode("utf-8"))
+        except Exception:
+            return None
     return None
 
 
 def win_tweaks_write(tokens):
-    """Escreve ou apaga os valores de WIN_TWEAKS, na ordem. Precisa de administrador. Retorna o código."""
+    """Escreve ou apaga os valores de WIN_TWEAKS, na ordem. Precisa de administrador. Retorna o código.
+    Se um dos 6 valores não puder ser escrito no meio do caminho (por exemplo, um anti-vírus bloqueando
+    só uma das chaves), desfaz sozinho os que já tinham sido trocados nesta mesma chamada — assim o PC
+    nunca fica com metade dos ajustes aplicados e metade não, nem com o 'Desfazer' depois encontrando
+    uma mistura que ele não sabe explicar."""
     import winreg
     if len(tokens) != len(WIN_TWEAKS):
         return ADMIN_BAD_ARGS
@@ -2099,22 +2108,45 @@ def win_tweaks_write(tokens):
     if None in parsed:
         return ADMIN_BAD_ARGS
     access = winreg.KEY_SET_VALUE | winreg.KEY_WOW64_64KEY
+
+    def write_one(sub, name, kind, val):
+        path = WIN_TWEAK_ROOT + ("\\" + sub if sub else "")
+        if kind == "d":
+            try:
+                with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, path, 0, access) as key:
+                    winreg.DeleteValue(key, name)
+            except FileNotFoundError:
+                pass
+        else:
+            with winreg.CreateKeyEx(winreg.HKEY_LOCAL_MACHINE, path, 0, access) as key:
+                winreg.SetValueEx(key, name, 0, winreg.REG_DWORD if kind == "i" else winreg.REG_SZ, val)
+
+    def current(sub, name):
+        path = WIN_TWEAK_ROOT + ("\\" + sub if sub else "")
+        try:
+            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, path) as key:
+                return winreg.QueryValueEx(key, name)[0]
+        except OSError:
+            return None
+
+    changed = []   # (sub, name, valor de antes) de cada um que já foi trocado nesta chamada
     try:
         for (sub, name, _value, _kind), (kind, val) in zip(WIN_TWEAKS, parsed):
-            path = WIN_TWEAK_ROOT + ("\\" + sub if sub else "")
-            if kind == "d":
-                try:
-                    with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, path, 0, access) as key:
-                        winreg.DeleteValue(key, name)
-                except FileNotFoundError:
-                    pass
-            else:
-                with winreg.CreateKeyEx(winreg.HKEY_LOCAL_MACHINE, path, 0, access) as key:
-                    winreg.SetValueEx(key, name, 0, winreg.REG_DWORD if kind == "i" else winreg.REG_SZ, val)
-    except PermissionError:
-        return ADMIN_DENIED
-    except OSError:
-        return ADMIN_REG_ERROR
+            before = current(sub, name)
+            write_one(sub, name, kind, val)
+            changed.append((sub, name, before))
+    except OSError as exc:
+        for sub, name, before in reversed(changed):
+            try:
+                if before is None:
+                    write_one(sub, name, "d", None)
+                elif isinstance(before, int):
+                    write_one(sub, name, "i", before)
+                else:
+                    write_one(sub, name, "s", before)
+            except Exception:
+                pass
+        return ADMIN_DENIED if isinstance(exc, PermissionError) else ADMIN_REG_ERROR
     return ADMIN_OK
 
 
@@ -7473,10 +7505,32 @@ class App:
             self.root.state("normal")
         except Exception:
             pass
+        self._force_taskbar_button()
         self._bring_to_front()
 
+    def _force_taskbar_button(self):
+        """Depois de esconder a janela com withdraw() e trazer de volta com deiconify(), o Windows
+        às vezes esquece de recriar o botão na barra de tarefas (bug conhecido do Tkinter no Windows):
+        a janela aparece na tela, mas sem botão nenhum na barra, e só voltava a aparecer direito se a
+        pessoa fechasse e abrisse o programa de novo. Isso força o Windows a tratar a janela como uma
+        janela normal de novo, sem precisar reabrir o programa."""
+        try:
+            hwnd = user32.GetAncestor(self.root.winfo_id(), 2) or self.root.winfo_id()
+            style = _GetLong(hwnd, -20)
+            # tira "janela de ferramenta" (fica fora da barra) e garante "janela de aplicativo" (aparece nela)
+            _SetLong(hwnd, -20, (style | 0x00040000) & ~0x00000080)
+            user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+        except Exception:
+            pass
+
     def _hide_at_start(self):
-        """Abrir minimizado: com o ícone na bandeja a janela some (sem botão na barra de tarefas)."""
+        """Abrir minimizado: com o ícone na bandeja a janela some (sem botão na barra de tarefas).
+        Antes de esconder, mostra a janela de verdade uma vez (ainda que só por um instante): se ela
+        for escondida direto, sem nunca ter sido mostrada, o Windows às vezes não dá um botão na barra
+        de tarefas a ela depois, mesmo usando deiconify() para trazer de volta — só reabrindo o
+        programa do zero o botão voltava a aparecer certo."""
+        self.root.deiconify()
+        self.root.update_idletasks()
         if self._tray_apply():
             self.root.withdraw()
         else:

@@ -1,3 +1,15 @@
+Version 2.11
+- Fixed: after opening the app from the tray icon, the window could reappear with no button on the Windows taskbar until you closed and reopened the whole program. It now forces the taskbar button back every time.
+- Fixed: the "Windows para jogos" (win tweaks) mod could leave some of its 6 registry values changed and others not if one of them failed partway through Apply or Undo; it now rolls itself back automatically so it is always all-or-nothing. Undo is also more reliable if one of those settings already had an unusual value before you ever used the app.
+
+Versão 2.11
+- Corrigido: depois de abrir o programa pelo ícone da bandeja, a janela podia voltar sem nenhum botão na barra de tarefas, e só reaparecia certo se você fechasse e abrisse o programa de novo. Agora isso é forçado toda vez.
+- Corrigido: o mod "Windows para jogos" podia deixar alguns dos 6 valores do registro trocados e outros não, se um deles falhasse no meio do caminho ao Aplicar ou Desfazer; agora ele desfaz sozinho o que já tinha mudado, para nunca ficar pela metade. O "Desfazer" também ficou mais confiável se algum desses ajustes já tinha um valor incomum antes mesmo de você usar o programa.
+
+Versión 2.11
+- Corregido: después de abrir el programa desde el icono de la bandeja, la ventana podía volver sin ningún botón en la barra de tareas, y solo reaparecía bien si cerrabas y volvías a abrir el programa. Ahora eso se fuerza cada vez.
+- Corregido: el mod "Windows para jogos" podía dejar algunos de sus 6 valores del registro cambiados y otros no, si uno fallaba a mitad de camino al Aplicar o Deshacer; ahora se deshace solo lo que ya había cambiado, para nunca quedar a medias. "Deshacer" también es más confiable si alguno de esos ajustes ya tenía un valor inusual antes de usar el programa.
+
 Version 2.10
 - Fixed: the Mods tab and the three cards on the Game Mode screen could show up completely empty. The rounded corners introduced in 2.9 are gone from these cards (square corners again); buttons, the side menu and the app icon keep the new look.
 
