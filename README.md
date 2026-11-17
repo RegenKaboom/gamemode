@@ -46,3 +46,18 @@ line of `gamemode_app.py` (two numbers, like `2.9`). Release notes come from `NO
 See `ATUALIZAR.txt` (Portuguese) for the step-by-step.
 
 The repository must be **public** for installed copies to download updates.
+
+Nuitka's `--standalone` mode bundles its own copy of the Python interpreter and every module the
+program needs (including Tkinter, via `--enable-plugin=tk-inter`) inside `GameMode.exe`'s folder.
+Installed copies never call out to a system Python and never require one to be installed — the
+`Python: ...` line Options > *Copiar diagnóstico* shows is just the version used to build that
+release, for troubleshooting.
+
+## Administrator mode
+
+The app runs normally without administrator rights; a few actions (the Windows registry tweaks in
+Mods, QoS, startup items) elevate just that one action through a small `--admin-job` helper process
+(see `run_admin_job` / `admin_job_main`), so Windows only asks for permission for those. On first
+open (if not already elevated) the app offers, once, to always reopen as administrator instead —
+this avoids the repeated per-action prompts, at the cost of a UAC prompt on every launch. That
+choice is `start_as_admin` in `settings.json` and can be changed any time in Options.

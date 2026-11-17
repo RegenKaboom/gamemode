@@ -1,3 +1,15 @@
+Version 2.12
+- New: on first open, Game Mode now suggests (once) opening as administrator, so the Windows-tweak mods apply without asking for permission every time. It is only a suggestion — the program works normally without it, and you can turn it on or off any time in Options > "Ao abrir o programa".
+- Confirmed: the installed program still never needs Python — Nuitka bundles everything inside GameMode.exe.
+
+Versão 2.12
+- Novidade: na primeira vez que abre, o Game Mode agora sugere (uma vez só) abrir como administrador, para os mods que mexem no Windows serem aplicados sem pedir permissão toda hora. É só uma sugestão — o programa funciona normalmente sem isso, e dá para ligar ou desligar quando quiser em Opções > "Ao abrir o programa".
+- Confirmado: o programa instalado continua não precisando de Python — o Nuitka embute tudo dentro do GameMode.exe.
+
+Versión 2.12
+- Novedad: la primera vez que abres, Game Mode ahora sugiere (una sola vez) abrirlo como administrador, para que los mods que tocan Windows se apliquen sin pedir permiso cada vez. Es solo una sugerencia — el programa funciona normalmente sin esto, y puedes activarlo o desactivarlo cuando quieras en Opciones > "Al abrir el programa".
+- Confirmado: el programa instalado sigue sin necesitar Python — Nuitka incluye todo dentro de GameMode.exe.
+
 Version 2.11
 - Fixed: after opening the app from the tray icon, the window could reappear with no button on the Windows taskbar until you closed and reopened the whole program. It now forces the taskbar button back every time.
 - Fixed: the "Windows para jogos" (win tweaks) mod could leave some of its 6 registry values changed and others not if one of them failed partway through Apply or Undo; it now rolls itself back automatically so it is always all-or-nothing. Undo is also more reliable if one of those settings already had an unusual value before you ever used the app.

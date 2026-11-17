@@ -161,7 +161,7 @@ POLL_ACTIVE_SECONDS = 3.0    # jogo aberto (menos trabalho enquanto você joga)
 RETRIM_SECONDS = 60.0
 POLL_IDLE_SLOW_SECONDS = 5.0  # depois de 1 min esperando o jogo, olha menos vezes
 IDLE_SLOW_AFTER = 60.0
-APP_VERSION = "2.11 (tray + win tweaks fix)"
+APP_VERSION = "2.12 (admin mode)"
 UPDATE_REPO = "RegenKaboom/gamemode"                  # onde as versões novas são publicadas (GitHub Releases)
 UPDATE_MANIFEST_URL = f"https://github.com/{UPDATE_REPO}/releases/latest/download/latest.json"
 UPDATE_PAGE = f"https://github.com/{UPDATE_REPO}/releases/latest"
@@ -189,6 +189,8 @@ DEFAULT_SETTINGS = {
     "protect": sorted(DEFAULT_PROTECT),
     "autostart_mode": False,   # ligar o Game Mode quando o programa abre
     "start_minimized": False,  # abrir minimizado
+    "start_as_admin": False,   # reabrir sempre como administrador (pede permissão do Windows toda vez)
+    "admin_notice_seen": False,  # já mostrou o aviso de "é recomendado abrir como administrador"
     "window": {"w": 0, "h": 0, "x": -1, "y": -1, "tab": "game"},
     "extras": {"break_on": False, "break_min": 60, "ping_alert": 0},   # pausa; aviso de ping (ms, 0 = off)
     "client": (gm_extras.client_defaults() if gm_extras is not None
@@ -2150,6 +2152,41 @@ def win_tweaks_write(tokens):
     return ADMIN_OK
 
 
+def _maybe_relaunch_as_admin():
+    """Se a pessoa marcou 'abrir sempre como administrador' e esta cópia ainda não é administrador,
+    abre de novo já com permissão e devolve True (para esta cópia aqui fechar sozinha). Se o Windows
+    recusar o pedido (a pessoa cancelou o aviso UAC, por exemplo), devolve False e o programa segue
+    aberto normalmente, sem administrador, sem ficar perguntando de novo nesta mesma abertura."""
+    if "--admin-job" in sys.argv:
+        return False
+    try:
+        if shell32.IsUserAnAdmin():
+            return False
+    except Exception:
+        return False
+    try:
+        if not load_settings().get("start_as_admin"):
+            return False
+    except Exception:
+        return False
+    exe, base = self_command()
+    args = base + [a for a in sys.argv[1:] if a != "--admin-job"]
+    info = SHELLEXECUTEINFOW()
+    info.cbSize = ctypes.sizeof(SHELLEXECUTEINFOW)
+    info.fMask = SEE_MASK_NOCLOSEPROCESS
+    info.lpVerb = "runas"
+    info.lpFile = exe
+    info.lpParameters = subprocess.list2cmdline(args)
+    info.nShow = 1  # SW_SHOWNORMAL
+    if not shell32.ShellExecuteExW(ctypes.byref(info)):
+        return False
+    try:
+        kernel32.CloseHandle(info.hProcess)
+    except Exception:
+        pass
+    return True
+
+
 def admin_job_main(argv):
     """Roda no processo elevado: --admin-job <tarefa> <argumentos...>. Retorna o código de saída."""
     try:
@@ -3727,6 +3764,7 @@ class App:
             root.after(150, self._hide_at_start)
         else:
             self._bring_to_front()
+            root.after(600, self._maybe_show_admin_notice)
         if gm_mods is not None and self.settings["window"].get("tab") == "mods":
             self.select_tab("mods")
         elif self.settings["window"].get("tab") == "display":
@@ -7247,11 +7285,26 @@ class App:
         start_vars = {
             "autostart_mode": tk.BooleanVar(value=self.settings["autostart_mode"]),
             "start_minimized": tk.BooleanVar(value=self.settings["start_minimized"]),
+            "start_as_admin": tk.BooleanVar(value=self.settings.get("start_as_admin", False)),
         }
         login_var = tk.BooleanVar(value=at_login)
         check(tr("Ligar o Game Mode automaticamente"), start_vars["autostart_mode"])
         check(tr("Abrir minimizado"), start_vars["start_minimized"])
         check(tr("Abrir junto com o Windows (só para o seu usuário)"), login_var)
+        try:
+            is_admin_now = bool(shell32.IsUserAnAdmin())
+        except Exception:
+            is_admin_now = False
+        if is_admin_now:
+            check(tr("Abrir sempre como administrador (já está aberto como administrador agora)"),
+                  start_vars["start_as_admin"])
+        else:
+            check(tr("Abrir sempre como administrador (menos avisos do Windows nos Mods; recomendado)"),
+                  start_vars["start_as_admin"])
+            tk.Label(body, text=tr("Vale a partir da próxima vez que abrir o Game Mode; o Windows vai "
+                                    "pedir a sua permissão (UAC) toda vez que o programa abrir."),
+                     bg=BG, fg=MUTED, font=(FONT, 8), wraplength=470, justify="left").pack(
+                         anchor="w", padx=20, pady=(0, 6))
 
         label(tr("O que fazer"))
         checks = [
@@ -7558,6 +7611,85 @@ class App:
         except OSError:
             pass
 
+    def _restart_as_admin(self):
+        """Fecha esta cópia e abre de novo já como administrador (pede a permissão do Windows)."""
+        exe, base = self_command()
+        args = base + [a for a in sys.argv[1:] if a != "--admin-job"]
+        info = SHELLEXECUTEINFOW()
+        info.cbSize = ctypes.sizeof(SHELLEXECUTEINFOW)
+        info.fMask = SEE_MASK_NOCLOSEPROCESS
+        info.lpVerb = "runas"
+        info.lpFile = exe
+        info.lpParameters = subprocess.list2cmdline(args)
+        info.nShow = 1  # SW_SHOWNORMAL
+        if not shell32.ShellExecuteExW(ctypes.byref(info)):
+            if ctypes.get_last_error() == ERROR_CANCELLED:
+                messagebox.showinfo("Game Mode", tr("Você cancelou o pedido de administrador do Windows. "
+                                                     "O Game Mode continua aberto normalmente."),
+                                     parent=self.root)
+            else:
+                messagebox.showwarning("Game Mode", tr("Não consegui abrir como administrador. "
+                                                        "O Game Mode continua aberto normalmente."),
+                                        parent=self.root)
+            return
+        try:
+            kernel32.CloseHandle(info.hProcess)
+        except Exception:
+            pass
+        self.on_close()
+
+    def _maybe_show_admin_notice(self):
+        """Uma vez só na vida do programa: sugere abrir como administrador, se ainda não for."""
+        try:
+            if shell32.IsUserAnAdmin():
+                return
+        except Exception:
+            return
+        if self.settings.get("admin_notice_seen"):
+            return
+        self.settings["admin_notice_seen"] = True
+        save_settings(self.settings)
+        self._show_admin_notice()
+
+    def _show_admin_notice(self):
+        win = tk.Toplevel(self.root)
+        win.title("Game Mode")
+        win.configure(bg=BG)
+        win.transient(self.root)
+        win.resizable(False, False)
+        tk.Label(win, text=tr("Abrir como administrador?"), bg=BG, fg=TEXT,
+                 font=(FONT, 13, "bold")).pack(anchor="w", padx=22, pady=(20, 8))
+        msg = tr("É recomendado abrir o Game Mode como administrador: assim os ajustes que mexem no "
+                 "Windows (como o \"Windows para jogos\", nos Mods) são aplicados direto, sem o Windows "
+                 "perguntar toda vez. Isso é só uma sugestão — o programa funciona normalmente sem "
+                 "isso também, e dá para mudar de ideia depois em Opções.")
+        tk.Label(win, text=msg, bg=BG, fg=MUTED, font=(FONT, 9), wraplength=380,
+                 justify="left").pack(anchor="w", padx=22, pady=(0, 18))
+        bar = tk.Frame(win, bg=BG)
+        bar.pack(fill="x", padx=22, pady=(0, 20))
+
+        def choose_admin():
+            self.settings["start_as_admin"] = True
+            save_settings(self.settings)
+            win.destroy()
+            self._restart_as_admin()
+
+        tk.Button(bar, text=tr("Abrir como administrador agora"), command=choose_admin, bg=ACCENT,
+                  fg=ON_ACCENT, activebackground=ACCENT_HOVER, activeforeground=ON_ACCENT, relief="flat",
+                  bd=0, padx=16, pady=9, font=(FONT, 9, "bold"), cursor="hand2").pack(
+                      side="top", fill="x")
+        tk.Button(bar, text=tr("Continuar sem administrador"), command=win.destroy, bg=PANEL, fg=TEXT,
+                  activebackground=BORDER, activeforeground=TEXT, relief="flat", bd=0, padx=16, pady=9,
+                  font=(FONT, 9), cursor="hand2").pack(side="top", fill="x", pady=(8, 0))
+        win.protocol("WM_DELETE_WINDOW", win.destroy)
+        win.update_idletasks()
+        w, h = win.winfo_width(), win.winfo_height()
+        x = self.root.winfo_x() + (self.root.winfo_width() - w) // 2
+        y = self.root.winfo_y() + (self.root.winfo_height() - h) // 2
+        win.geometry(f"+{max(0, x)}+{max(0, y)}")
+        win.grab_set()
+        win.focus_force()
+
     # ---- fechar ------------------------------------------------------
 
     def on_close(self):
@@ -7598,6 +7730,8 @@ def main():
         ctypes.windll.shcore.SetProcessDpiAwareness(1)
     except Exception:
         pass
+    if _maybe_relaunch_as_admin():
+        return
     root = tk.Tk()
     App(root, start_minimized="--minimized" in sys.argv)
     root.mainloop()
