@@ -161,7 +161,7 @@ POLL_ACTIVE_SECONDS = 3.0    # jogo aberto (menos trabalho enquanto você joga)
 RETRIM_SECONDS = 60.0
 POLL_IDLE_SLOW_SECONDS = 5.0  # depois de 1 min esperando o jogo, olha menos vezes
 IDLE_SLOW_AFTER = 60.0
-APP_VERSION = "2.13 (hags + bg services)"
+APP_VERSION = "2.14 (visual: dark/blue)"
 UPDATE_REPO = "RegenKaboom/gamemode"                  # onde as versões novas são publicadas (GitHub Releases)
 UPDATE_MANIFEST_URL = f"https://github.com/{UPDATE_REPO}/releases/latest/download/latest.json"
 UPDATE_PAGE = f"https://github.com/{UPDATE_REPO}/releases/latest"
@@ -3474,7 +3474,7 @@ class RoundButton(tk.Canvas):
     kind: 'primary' (cor de destaque), 'normal' (cinza) ou 'quiet' (só texto, sem fundo)."""
 
     def __init__(self, parent, text="", command=None, primary=False, quiet=False, font=None,
-                 padx=16, pady=8, radius=9, min_width=0):
+                 padx=16, pady=8, radius=10, min_width=0):
         self._outer = _bg_of(parent)
         self._min_w, self._selected = min_width, False
         self.kind = "primary" if primary else ("quiet" if quiet else "normal")

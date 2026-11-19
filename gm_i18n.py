@@ -127,12 +127,12 @@ def tr(text):
 # ---- palettes ---------------------------------------------------------------------
 
 DARK = {
-    "BG": "#0e0f13", "SIDE": "#14151b", "CARD": "#1a1c24", "PANEL": "#242732", "BORDER": "#2d313d",
-    "TEXT": "#eceef4", "MUTED": "#8f94a1", "ACCENT": "#5b94ff", "GREEN": "#35d07f",
+    "BG": "#0a0b10", "SIDE": "#0d0e15", "CARD": "#15171f", "PANEL": "#1e212b", "BORDER": "#262a37",
+    "TEXT": "#eef1f8", "MUTED": "#8b92a3", "ACCENT": "#3d8bff", "GREEN": "#35d07f",
     "WARN": "#f5a623", "PINK": "#b983f0", "TEAL": "#2ec4b6",
-    "SEL": "#23325a", "ACCENT_HOVER": "#4379e6", "OFF": "#3a3e4b", "OFF_DIS": "#2a2d37",
-    "KNOB_DIS": "#6b6f7a", "ICON": "#9aa0ab", "ICON_HOVER": "#c5c9d3", "ICON_BG": "#202b4a",
-    "BTN_BG": "#0c0d11", "GLOW1": "#141f3a", "GLOW2": "#18284a", "GLOW3": "#1f3566",
+    "SEL": "#15264c", "ACCENT_HOVER": "#2f74e0", "OFF": "#363a48", "OFF_DIS": "#262a35",
+    "KNOB_DIS": "#6b6f7a", "ICON": "#949aab", "ICON_HOVER": "#c9ccd8", "ICON_BG": "#17254a",
+    "BTN_BG": "#06070a", "GLOW1": "#0e1830", "GLOW2": "#122040", "GLOW3": "#182c58",
 }
 LIGHT = {
     "BG": "#f4f5f8", "SIDE": "#eceef3", "CARD": "#ffffff", "PANEL": "#e4e8ef", "BORDER": "#cdd3de",

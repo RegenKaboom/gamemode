@@ -1,3 +1,12 @@
+Version 2.14
+- Visual refresh of the Dark theme: deeper near-black background and a punchier electric-blue accent, plus slightly softer button corners. Colors only — no screen, card or menu was moved or resized, so this carries none of the 2.9 risk.
+
+Versão 2.14
+- Visual atualizado do tema Escuro: fundo mais preto e um azul de destaque mais vibrante, com os cantos dos botões um pouco mais arredondados. Só cor — nenhuma tela, cartão ou menu mudou de lugar ou de tamanho, então isso não tem o risco que a 2.9 teve.
+
+Versión 2.14
+- Visual actualizado del tema Oscuro: fondo más negro y un azul de acento más vibrante, con las esquinas de los botones un poco más redondeadas. Solo color — ninguna pantalla, tarjeta o menú cambió de lugar o de tamaño, así que esto no tiene el riesgo que tuvo la 2.9.
+
 Version 2.13
 - New mod: "Hardware-accelerated GPU scheduling" (HAGS) — lets the graphics card manage its own frame queue instead of Windows. Needs administrator and a restart to take effect.
 - New mod: "Background services" — stops SysMain (Superfetch) and Windows Search while you play, and can turn both back on exactly as they were. Needs administrator.
