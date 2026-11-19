@@ -1,3 +1,18 @@
+Version 2.13
+- New mod: "Hardware-accelerated GPU scheduling" (HAGS) — lets the graphics card manage its own frame queue instead of Windows. Needs administrator and a restart to take effect.
+- New mod: "Background services" — stops SysMain (Superfetch) and Windows Search while you play, and can turn both back on exactly as they were. Needs administrator.
+- Both mods keep the same all-or-nothing safety as "Windows para jogos": if something fails partway, they undo themselves instead of leaving things half-changed.
+
+Versão 2.13
+- Mod novo: "Agendamento de GPU por hardware" (HAGS) — deixa a própria placa de vídeo organizar a fila de quadros dela, em vez do Windows. Precisa de administrador e só vale depois de reiniciar o PC.
+- Mod novo: "Serviços em segundo plano" — para o SysMain (Superfetch) e a Pesquisa do Windows enquanto você joga, e religa os dois do jeito que estavam. Precisa de administrador.
+- Os dois mods têm a mesma segurança "tudo ou nada" do "Windows para jogos": se algo falhar no meio do caminho, eles se desfazem sozinhos em vez de deixar a coisa pela metade.
+
+Versión 2.13
+- Mod nuevo: "Programación de GPU por hardware" (HAGS) — deja que la propia tarjeta de video organice su cola de cuadros, en vez de Windows. Necesita administrador y solo tiene efecto después de reiniciar el PC.
+- Mod nuevo: "Servicios en segundo plano" — detiene SysMain (Superfetch) y la Búsqueda de Windows mientras juegas, y puede reactivar los dos tal como estaban. Necesita administrador.
+- Los dos mods tienen la misma seguridad "todo o nada" que "Windows para jogos": si algo falla a mitad de camino, se deshacen solos en vez de dejar las cosas a medias.
+
 Version 2.12
 - New: on first open, Game Mode now suggests (once) opening as administrator, so the Windows-tweak mods apply without asking for permission every time. It is only a suggestion — the program works normally without it, and you can turn it on or off any time in Options > "Ao abrir o programa".
 - Confirmed: the installed program still never needs Python — Nuitka bundles everything inside GameMode.exe.

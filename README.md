@@ -6,7 +6,7 @@ A Windows app that makes games run smoother and shows useful information on scre
 - **Overlays:** CPU, RAM, ping, keys, CPS, crosshair, a Friday Night Funkin' arrow counter and a Feather/Badlion style "Client" look.
 - **Profiles:** one profile per game (ping server, overlay look, GPU), with automatic switching.
 - **Steam and Epic Games:** Options > *Import from Steam / Epic* finds installed games and adds them as profiles, with the `.exe` path already filled in.
-- **Mods tab:** QoS, Movement Helper, brightness, shaders, Windows game tweaks, Windows Game Mode, mouse acceleration off, keyboard without popups, shader cache cleanup, monitor refresh rate and Windows startup programs. Everything that changes Windows keeps a backup and has an Undo button (the shader cache is just rebuilt by the games).
+- **Mods tab:** QoS, Movement Helper, brightness, shaders, Windows game tweaks, hardware-accelerated GPU scheduling (HAGS), background services (SysMain/Superfetch + Windows Search), Windows Game Mode, mouse acceleration off, keyboard without popups, shader cache cleanup, monitor refresh rate and Windows startup programs. Everything that changes Windows keeps a backup and has an Undo button (the shader cache is just rebuilt by the games).
 - **Languages:** English, Portuguese and Spanish (installer and Options > Accessibility).
 - **Look:** rounded cards and buttons, side menu, Ctrl+K search, 11 themes (Dark, Light, Midnight, OLED, Ocean, Forest, Violet, Rose, Amber, Emerald, Sakura) and accent colors, in Options > Appearance.
 - **Tray icon:** next to the clock, with a right-click menu (open, turn on/off, restore, exit). Closing the window can keep the program in the tray.
@@ -55,9 +55,18 @@ release, for troubleshooting.
 
 ## Administrator mode
 
-The app runs normally without administrator rights; a few actions (the Windows registry tweaks in
-Mods, QoS, startup items) elevate just that one action through a small `--admin-job` helper process
-(see `run_admin_job` / `admin_job_main`), so Windows only asks for permission for those. On first
-open (if not already elevated) the app offers, once, to always reopen as administrator instead —
-this avoids the repeated per-action prompts, at the cost of a UAC prompt on every launch. That
-choice is `start_as_admin` in `settings.json` and can be changed any time in Options.
+The app runs normally without administrator rights; a few actions elevate just that one action
+through a small `--admin-job` helper process (see `run_admin_job` / `admin_job_main`), so Windows
+only asks for permission for those. Each admin job is a fixed, hardcoded task — never PowerShell,
+never a path or service name coming from outside the program — to keep the elevated surface as
+small as possible:
+
+| job | does |
+| --- | --- |
+| `tweaks` | the 6 `WIN_TWEAKS` registry values ("Windows para jogos") |
+| `hags` | the single `HwSchedMode` registry value (hardware-accelerated GPU scheduling) |
+| `svc_off` / `svc_on` | stops/starts the two `BG_SERVICES` (SysMain, WSearch) via `sc.exe` |
+
+On first open (if not already elevated) the app offers, once, to always reopen as administrator
+instead — this avoids the repeated per-action prompts, at the cost of a UAC prompt on every launch.
+That choice is `start_as_admin` in `settings.json` and can be changed any time in Options.

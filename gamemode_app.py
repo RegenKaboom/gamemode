@@ -161,7 +161,7 @@ POLL_ACTIVE_SECONDS = 3.0    # jogo aberto (menos trabalho enquanto você joga)
 RETRIM_SECONDS = 60.0
 POLL_IDLE_SLOW_SECONDS = 5.0  # depois de 1 min esperando o jogo, olha menos vezes
 IDLE_SLOW_AFTER = 60.0
-APP_VERSION = "2.12 (admin mode)"
+APP_VERSION = "2.13 (hags + bg services)"
 UPDATE_REPO = "RegenKaboom/gamemode"                  # onde as versões novas são publicadas (GitHub Releases)
 UPDATE_MANIFEST_URL = f"https://github.com/{UPDATE_REPO}/releases/latest/download/latest.json"
 UPDATE_PAGE = f"https://github.com/{UPDATE_REPO}/releases/latest"
@@ -177,6 +177,8 @@ DEFAULT_SETTINGS = {
     "gpu_pref": False,       # Roblox usa a GPU de alto desempenho (preferência do Windows)
     "gpu_paths": [],         # exes que o programa mudou (para poder desfazer)
     "win_tweaks": {"backup": None},   # valores de antes dos ajustes de jogo do Windows
+    "hags": {"backup": None},         # agendamento de GPU por hardware: valor do registro de antes
+    "svc_tweak": {"backup": None},    # SysMain/Pesquisa do Windows: tipo de início de cada um antes
     "mem_priority": True,    # prioridade de memória baixa nos apps calmos
     "io_priority": True,     # disco com prioridade baixa nos apps calmos
     "limit_cpu": False,      # apps calmos presos a poucos núcleos (PCs com mais de 4)
@@ -308,6 +310,12 @@ def _merge_settings(default, saved):
 
 _FIRST_RUN = not os.path.isfile(SETTINGS_PATH)   # primeira vez neste PC: não avisa de atualização
 
+# Essas chaves guardam {"backup": ...} para um mod que pede administrador. O padrão de "backup" é
+# None, então o _merge_settings (que só aceita um valor salvo se o tipo bater com o padrão) descarta
+# o que foi salvo, qualquer que seja o tipo dele (dicionário, número...). Por isso são tratadas à
+# parte aqui, copiando o valor salvo direto, sem passar pelo _merge_settings.
+_BACKUP_KEYS = ("win_tweaks", "hags", "svc_tweak")
+
 
 def load_settings():
     settings = json.loads(json.dumps(DEFAULT_SETTINGS))
@@ -316,10 +324,10 @@ def load_settings():
             saved = json.load(f)
         if isinstance(saved, dict):
             _merge_settings(settings, saved)
-            # o padrão é None, então o _merge_settings descartava o backup salvo (um dicionário)
-            old = (saved.get("win_tweaks") or {}).get("backup") if isinstance(saved.get("win_tweaks"), dict) else None
-            if isinstance(old, dict):
-                settings["win_tweaks"]["backup"] = old
+            for key in _BACKUP_KEYS:
+                sub = saved.get(key)
+                if isinstance(sub, dict) and sub.get("backup") is not None:
+                    settings[key]["backup"] = sub["backup"]
     except (OSError, ValueError):
         pass
     return settings
@@ -2067,11 +2075,12 @@ def win_tweaks_active():
 
 
 # Tarefas que precisam de administrador: o próprio programa se abre de novo com permissão (o Windows
-# mostra o aviso UAC), faz UMA tarefa fixa e fecha. Não usa PowerShell e não recebe caminhos de fora:
-# só "tweaks" existe, e ela só mexe nos 6 valores de WIN_TWEAKS.
-ADMIN_OK, ADMIN_BAD_ARGS, ADMIN_REG_ERROR, ADMIN_DENIED = 0, 2, 3, 5
+# mostra o aviso UAC), faz UMA tarefa fixa e fecha. Nunca usa PowerShell e nunca recebe caminho de
+# fora: cada tarefa só mexe no que já está fixado no código (6 valores de WIN_TWEAKS, 1 valor de
+# HAGS_NAME ou os 2 serviços de BG_SERVICES) — "tweaks", "hags", "svc_off" e "svc_on".
+ADMIN_OK, ADMIN_BAD_ARGS, ADMIN_REG_ERROR, ADMIN_SVC_ERROR, ADMIN_DENIED = 0, 2, 3, 4, 5
 ADMIN_TEXT = {ADMIN_BAD_ARGS: tr("pedido inválido"), ADMIN_REG_ERROR: tr("o Windows recusou mexer no registro"),
-              ADMIN_DENIED: tr("acesso negado")}
+              ADMIN_SVC_ERROR: tr("o Windows recusou mexer num serviço"), ADMIN_DENIED: tr("acesso negado")}
 def tweak_token(value):
     """Valor do registro -> texto curto para a linha de comando: 'd' apagar, 'i123' número, 'b...' texto
     (em base64, para aceitar qualquer texto que já estivesse no registro antes, sem risco de o
@@ -2196,6 +2205,12 @@ def admin_job_main(argv):
         return ADMIN_BAD_ARGS
     if job == "tweaks":
         return win_tweaks_write(rest)
+    if job == "hags":
+        return hags_write(rest)
+    if job == "svc_off":
+        return svc_tweak_write(rest, turn_on=False)
+    if job == "svc_on":
+        return svc_tweak_write(rest, turn_on=True)
     return ADMIN_BAD_ARGS
 
 
@@ -2257,6 +2272,157 @@ def win_tweaks_restore(backup):
     if not ok:
         return False, [("warn", tr("Não consegui voltar os ajustes do Windows. ") + text)]
     return True, [("ok", tr("Ajustes de jogo do Windows desfeitos (valores de antes)."))]
+
+
+# ---- Agendamento de GPU por hardware (HAGS): deixa a própria placa de vídeo organizar a fila dela,
+# em vez do Windows. Fica numa chave do sistema inteiro (HKLM), por isso pede administrador. Só
+# passa a valer depois de reiniciar o PC.
+HAGS_ROOT = r"SYSTEM\CurrentControlSet\Control\GraphicsDrivers"
+HAGS_NAME = "HwSchedMode"
+
+
+def hags_read():
+    import winreg
+    try:
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, HAGS_ROOT) as key:
+            return winreg.QueryValueEx(key, HAGS_NAME)[0]
+    except OSError:
+        return None
+
+
+def hags_active():
+    return hags_read() == 2
+
+
+def hags_write(tokens):
+    """Roda no processo elevado. tokens = [token] com o valor novo ('d' apagar ou 'i<n>' um número)."""
+    import winreg
+    if len(tokens) != 1:
+        return ADMIN_BAD_ARGS
+    parsed = parse_tweak_token(tokens[0])
+    if parsed is None or parsed[0] not in ("d", "i"):
+        return ADMIN_BAD_ARGS
+    kind, val = parsed
+    access = winreg.KEY_SET_VALUE | winreg.KEY_WOW64_64KEY
+    try:
+        if kind == "d":
+            try:
+                with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, HAGS_ROOT, 0, access) as key:
+                    winreg.DeleteValue(key, HAGS_NAME)
+            except FileNotFoundError:
+                pass
+        else:
+            with winreg.CreateKeyEx(winreg.HKEY_LOCAL_MACHINE, HAGS_ROOT, 0, access) as key:
+                winreg.SetValueEx(key, HAGS_NAME, 0, winreg.REG_DWORD, val)
+    except PermissionError:
+        return ADMIN_DENIED
+    except OSError:
+        return ADMIN_REG_ERROR
+    return ADMIN_OK
+
+
+def hags_apply():
+    """Liga o HAGS (pede administrador)."""
+    ok, text = run_admin_job("hags", [tweak_token(2)])
+    if not ok:
+        return False, [("warn", tr("Agendamento de GPU por hardware não aplicado. ") + text)]
+    return True, [("ok", tr("Agendamento de GPU por hardware ligado. Só vale depois de reiniciar o PC."))]
+
+
+def hags_restore(backup):
+    """Volta ao valor de antes (ou apaga, se não existia)."""
+    ok, text = run_admin_job("hags", [tweak_token(backup)])
+    if not ok:
+        return False, [("warn", tr("Não consegui desfazer o agendamento de GPU por hardware. ") + text)]
+    return True, [("ok", tr("Agendamento de GPU por hardware desfeito (valor de antes). "
+                            "Só vale depois de reiniciar o PC."))]
+
+
+# ---- Serviços em segundo plano (SysMain/Superfetch e Pesquisa do Windows): para enquanto você joga,
+# para sobrar mais disco e processador. Mexe em serviços do Windows inteiro, por isso pede
+# administrador. Nunca chama PowerShell: só o sc.exe do próprio Windows, com argumentos sempre fixos
+# (nunca um nome ou caminho vindo de fora).
+BG_SERVICES = ("SysMain", "WSearch")      # Superfetch/SysMain e Indexação de Pesquisa do Windows
+_SVC_START_RE = re.compile(r"START_TYPE\s*:\s*(\d+)")
+_SVC_START_NAME = {2: "auto", 3: "demand", 4: "disabled"}
+
+
+def _sc_run(*args, timeout=15):
+    """Roda o sc.exe do Windows com argumentos sempre fixos. Retorna (código, saída)."""
+    try:
+        r = subprocess.run(["sc.exe", *args], capture_output=True, text=True, timeout=timeout,
+                           creationflags=0x08000000)  # CREATE_NO_WINDOW
+        return r.returncode, (r.stdout or "") + (r.stderr or "")
+    except Exception as exc:
+        return 1, str(exc)
+
+
+def svc_start_type(name):
+    """2=automático, 3=manual, 4=desativado; None se o serviço não existir nesse Windows."""
+    code, out = _sc_run("qc", name)
+    if code != 0:
+        return None
+    m = _SVC_START_RE.search(out)
+    return int(m.group(1)) if m else None
+
+
+def bg_services_read():
+    """{'SysMain': tipo_de_início, 'WSearch': tipo_de_início}; None para quem não existir."""
+    return {name: svc_start_type(name) for name in BG_SERVICES}
+
+
+def bg_services_active():
+    """True se todos os serviços que existirem estiverem parados por nós (manual ou desativado)."""
+    present = [t for t in bg_services_read().values() if t is not None]
+    return bool(present) and all(t in (3, 4) for t in present)
+
+
+def svc_tweak_write(tokens, turn_on):
+    """Roda no processo elevado. Ao desligar não recebe nada (sempre para e põe em manual). Ao ligar,
+    recebe um token por serviço de BG_SERVICES com o tipo de início de antes, para voltar exatamente
+    a ele (e não só 'automático' por padrão, caso já estivesse diferente antes do programa mexer)."""
+    parsed = None
+    if turn_on:
+        if len(tokens) != len(BG_SERVICES):
+            return ADMIN_BAD_ARGS
+        parsed = [parse_tweak_token(t) for t in tokens]
+        if any(p is None or p[0] != "i" or not (0 <= p[1] <= 4) for p in parsed):
+            return ADMIN_BAD_ARGS
+    had_error = False
+    for i, name in enumerate(BG_SERVICES):
+        if svc_start_type(name) is None:      # não existe nesse Windows: pula, não é erro
+            continue
+        if turn_on:
+            start_type = parsed[i][1] if parsed[i][1] in _SVC_START_NAME else 2
+            _sc_run("config", name, "start=", _SVC_START_NAME[start_type])
+            code, _out = _sc_run("start", name)
+            if code not in (0, 1056):          # 1056 = já estava rodando
+                had_error = True
+        else:
+            _sc_run("stop", name)
+            code, _out = _sc_run("config", name, "start=", "demand")
+            if code != 0:
+                had_error = True
+    return ADMIN_SVC_ERROR if had_error else ADMIN_OK
+
+
+def bg_services_apply():
+    """Para o SysMain e a Pesquisa do Windows (pede administrador)."""
+    ok, text = run_admin_job("svc_off", [])
+    if not ok:
+        return False, [("warn", tr("Não consegui parar os serviços em segundo plano. ") + text)]
+    return True, [("ok", tr("SysMain e Pesquisa do Windows parados. Menos disco e processador usados "
+                            "em segundo plano enquanto você joga."))]
+
+
+def bg_services_restore(backup):
+    """Liga de novo, voltando ao tipo de início de antes de cada serviço (automático, se não soubermos)."""
+    tokens = [tweak_token((backup or {}).get(name) if (backup or {}).get(name) is not None else 2)
+              for name in BG_SERVICES]
+    ok, text = run_admin_job("svc_on", tokens)
+    if not ok:
+        return False, [("warn", tr("Não consegui religar os serviços em segundo plano. ") + text)]
+    return True, [("ok", tr("SysMain e Pesquisa do Windows ligados de novo."))]
 
 
 BRIGHT_KEYS = [("none", tr("Nenhuma"), 0), ("f9", "F9", 0x78), ("f10", "F10", 0x79),
@@ -4254,6 +4420,8 @@ class App:
             self._build_shader_card(inner)
             self._build_overlay_card(inner)
             self._build_wintweaks_card(inner)
+            self._build_hags_card(inner)
+            self._build_bgsvc_card(inner)
             if gm_extras is not None:
                 self._build_extra_cards(inner)
             self._mods_ok = True
@@ -4512,6 +4680,12 @@ class App:
         if hasattr(self, "wt_badge"):
             on = win_tweaks_active()
             self._cfg(self.wt_badge, text=tr("ATIVO") if on else tr("INATIVO"), fg=GREEN if on else MUTED)
+        if hasattr(self, "hags_badge"):
+            on = hags_active()
+            self._cfg(self.hags_badge, text=tr("ATIVO") if on else tr("INATIVO"), fg=GREEN if on else MUTED)
+        if hasattr(self, "bgsvc_badge"):
+            on = bg_services_active()
+            self._cfg(self.bgsvc_badge, text=tr("PARADOS") if on else tr("LIGADOS"), fg=GREEN if on else MUTED)
         q = qos_status()
         if q.get("active"):
             self._cfg(self.qos_badge, text=tr('ATIVO · DSCP {}').format(q.get('dscp')), fg=GREEN)
@@ -6159,6 +6333,90 @@ class App:
             self._show_result(self.wt_status, result, self.wt_buttons, self.refresh_mod_badges)
 
         self._run_bg(lambda: win_tweaks_restore(backup), done)
+
+    def _build_hags_card(self, parent):
+        body, self.hags_badge, self.hags_status, gear = self._mod_card(
+            parent, 11, 0, tr("Agendamento de GPU por hardware"),
+            tr("Deixa a própria placa de vídeo organizar a fila de quadros, em vez do Windows. Em "
+            "placas e drivers recentes costuma ajudar o tempo de resposta (latência); em outras não "
+            "muda nada. Pede permissão de administrador e só vale depois de reiniciar o PC."), TEAL)
+        buttons = tk.Frame(body, bg=CARD)
+        buttons.pack(anchor="w")
+        self.hags_buttons = [self._btn(buttons, tr("Ligar"), self.hags_apply_click, True),
+                              self._btn(buttons, tr("Desfazer"), self.hags_restore_click)]
+        self.hags_buttons[0].pack(side="left")
+        self.hags_buttons[1].pack(side="left", padx=8)
+        tk.Label(gear, text="O que muda (HKLM\\SYSTEM\\CurrentControlSet\\Control\\GraphicsDrivers):\n"
+                            f"• {HAGS_NAME} = 2",
+                 bg=CARD, fg=MUTED, font=(FONT, 9), justify="left").grid(row=0, column=0, sticky="w")
+
+    def hags_apply_click(self):
+        self._busy(self.hags_buttons, True)
+        self._status(self.hags_status, "info", tr("Aguardando a permissão de administrador do Windows..."))
+        ht = self.settings["hags"]
+        if ht.get("backup") is None and not hags_active():
+            try:
+                ht["backup"] = hags_read()    # guarda o valor de antes
+                save_settings(self.settings)
+            except Exception:
+                ht["backup"] = None
+        self._run_bg(hags_apply, lambda result: self._show_result(
+            self.hags_status, result, self.hags_buttons, self.refresh_mod_badges))
+
+    def hags_restore_click(self):
+        self._busy(self.hags_buttons, True)
+        self._status(self.hags_status, "info", tr("Aguardando a permissão de administrador do Windows..."))
+        backup = self.settings["hags"].get("backup")
+
+        def done(result):
+            if result[0]:
+                self.settings["hags"]["backup"] = None
+                save_settings(self.settings)
+            self._show_result(self.hags_status, result, self.hags_buttons, self.refresh_mod_badges)
+
+        self._run_bg(lambda: hags_restore(backup), done)
+
+    def _build_bgsvc_card(self, parent):
+        body, self.bgsvc_badge, self.bgsvc_status, gear = self._mod_card(
+            parent, 11, 1, tr("Serviços em segundo plano"),
+            tr("Para o SysMain (Superfetch) e a Pesquisa do Windows enquanto você joga, para sobrar "
+            "mais disco e processador. Pede permissão de administrador, guarda como cada um estava "
+            "e dá para religar os dois do jeito que estavam."), PINK)
+        buttons = tk.Frame(body, bg=CARD)
+        buttons.pack(anchor="w")
+        self.bgsvc_buttons = [self._btn(buttons, tr("Parar"), self.bgsvc_apply_click, True),
+                               self._btn(buttons, tr("Religar"), self.bgsvc_restore_click)]
+        self.bgsvc_buttons[0].pack(side="left")
+        self.bgsvc_buttons[1].pack(side="left", padx=8)
+        tk.Label(gear, text=tr("Serviços do Windows:") + "\n• SysMain (Superfetch)\n"
+                            "• " + tr("Pesquisa do Windows") + " (WSearch)",
+                 bg=CARD, fg=MUTED, font=(FONT, 9), justify="left").grid(row=0, column=0, sticky="w")
+
+    def bgsvc_apply_click(self):
+        self._busy(self.bgsvc_buttons, True)
+        self._status(self.bgsvc_status, "info", tr("Aguardando a permissão de administrador do Windows..."))
+        st = self.settings["svc_tweak"]
+        if st.get("backup") is None and not bg_services_active():
+            try:
+                st["backup"] = bg_services_read()    # guarda o tipo de início de cada serviço
+                save_settings(self.settings)
+            except Exception:
+                st["backup"] = None
+        self._run_bg(bg_services_apply, lambda result: self._show_result(
+            self.bgsvc_status, result, self.bgsvc_buttons, self.refresh_mod_badges))
+
+    def bgsvc_restore_click(self):
+        self._busy(self.bgsvc_buttons, True)
+        self._status(self.bgsvc_status, "info", tr("Aguardando a permissão de administrador do Windows..."))
+        backup = self.settings["svc_tweak"].get("backup")
+
+        def done(result):
+            if result[0]:
+                self.settings["svc_tweak"]["backup"] = None
+                save_settings(self.settings)
+            self._show_result(self.bgsvc_status, result, self.bgsvc_buttons, self.refresh_mod_badges)
+
+        self._run_bg(lambda: bg_services_restore(backup), done)
 
     # ---- overlays (HUD) ----------------------------------------------------
 

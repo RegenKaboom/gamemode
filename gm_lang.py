@@ -2,6 +2,64 @@
 """Translation tables: Portuguese source text -> (English, Spanish). Used by gm_i18n.tr()."""
 
 TABLE = {
+    'Ligar': ('Turn on', 'Activar'),
+    'Parar': ('Stop', 'Detener'),
+    'Religar': ('Turn back on', 'Reactivar'),
+    'PARADOS': ('STOPPED', 'DETENIDOS'),
+    'LIGADOS': ('ON', 'ACTIVOS'),
+    'o Windows recusou mexer num serviço': ("Windows refused to change a service",
+                                             'Windows se negó a cambiar un servicio'),
+    'Agendamento de GPU por hardware': ('Hardware-accelerated GPU scheduling',
+                                         'Programación de GPU por hardware'),
+    'Deixa a própria placa de vídeo organizar a fila de quadros, em vez do Windows. Em '
+    'placas e drivers recentes costuma ajudar o tempo de resposta (latência); em outras não '
+    'muda nada. Pede permissão de administrador e só vale depois de reiniciar o PC.': (
+        'Lets the graphics card itself organize the frame queue, instead of Windows. On recent '
+        'cards and drivers it often helps response time (latency); on others it changes nothing. '
+        'Asks for administrator permission and only takes effect after restarting the PC.',
+        'Deja que la propia tarjeta de video organice la cola de cuadros, en vez de Windows. En '
+        'tarjetas y controladores recientes suele ayudar el tiempo de respuesta (latencia); en '
+        'otras no cambia nada. Pide permiso de administrador y solo tiene efecto después de '
+        'reiniciar el PC.'),
+    'Agendamento de GPU por hardware não aplicado. ': (
+        'Hardware-accelerated GPU scheduling not applied. ',
+        'Programación de GPU por hardware no aplicada. '),
+    'Agendamento de GPU por hardware ligado. Só vale depois de reiniciar o PC.': (
+        'Hardware-accelerated GPU scheduling turned on. Only takes effect after restarting the PC.',
+        'Programación de GPU por hardware activada. Solo tiene efecto después de reiniciar el PC.'),
+    'Não consegui desfazer o agendamento de GPU por hardware. ': (
+        'Could not undo hardware-accelerated GPU scheduling. ',
+        'No se pudo deshacer la programación de GPU por hardware. '),
+    'Agendamento de GPU por hardware desfeito (valor de antes). '
+    'Só vale depois de reiniciar o PC.': (
+        'Hardware-accelerated GPU scheduling undone (previous value). '
+        'Only takes effect after restarting the PC.',
+        'Programación de GPU por hardware deshecha (valor anterior). '
+        'Solo tiene efecto después de reiniciar el PC.'),
+    'Serviços em segundo plano': ('Background services', 'Servicios en segundo plano'),
+    'Para o SysMain (Superfetch) e a Pesquisa do Windows enquanto você joga, para sobrar '
+    'mais disco e processador. Pede permissão de administrador, guarda como cada um estava '
+    'e dá para religar os dois do jeito que estavam.': (
+        'Stops SysMain (Superfetch) and Windows Search while you play, to leave more disk and CPU '
+        'free. Asks for administrator permission, remembers how each one was set, and you can turn '
+        'both back on exactly as they were.',
+        'Detiene SysMain (Superfetch) y la Búsqueda de Windows mientras juegas, para dejar más disco '
+        'y procesador libres. Pide permiso de administrador, guarda cómo estaba cada uno y puedes '
+        'reactivar los dos tal como estaban.'),
+    'Serviços do Windows:': ('Windows services:', 'Servicios de Windows:'),
+    'Pesquisa do Windows': ('Windows Search', 'Búsqueda de Windows'),
+    'Não consegui parar os serviços em segundo plano. ': (
+        'Could not stop the background services. ', 'No se pudieron detener los servicios en segundo plano. '),
+    'SysMain e Pesquisa do Windows parados. Menos disco e processador usados '
+    'em segundo plano enquanto você joga.': (
+        'SysMain and Windows Search stopped. Less disk and CPU used in the background while you play.',
+        'SysMain y la Búsqueda de Windows detenidos. Menos disco y procesador usados en segundo '
+        'plano mientras juegas.'),
+    'Não consegui religar os serviços em segundo plano. ': (
+        'Could not turn the background services back on. ',
+        'No se pudieron reactivar los servicios en segundo plano. '),
+    'SysMain e Pesquisa do Windows ligados de novo.': (
+        'SysMain and Windows Search turned back on.', 'SysMain y la Búsqueda de Windows reactivados.'),
     'Abrir como administrador?': ('Open as administrator?', '¿Abrir como administrador?'),
     'É recomendado abrir o Game Mode como administrador: assim os ajustes que mexem no '
     'Windows (como o "Windows para jogos", nos Mods) são aplicados direto, sem o Windows '
