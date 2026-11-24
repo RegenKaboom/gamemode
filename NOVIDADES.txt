@@ -1,3 +1,21 @@
+Version 2.15
+- New mod "System and privacy": turns off telemetry, suggested-app installs, Windows experimentation, Delivery Optimization P2P, voice activation and settings cloud sync, plus Win32 Priority and the service-split threshold. Needs administrator.
+- New mod "Background tasks": turns off 4 Task Scheduler tasks (app-compat telemetry, SQM, diagnostics scanner, WinSAT). Needs administrator.
+- New mod "Power and disk": turns off hibernation, USB selective suspend, and forces SSD TRIM on. Needs administrator.
+- 4 new mods that don't need administrator: Windows nudges/suggestions off, Media Player usage tracking off, search without Bing suggestions, search without cloud.
+
+Versão 2.15
+- Mod novo "Sistema e privacidade": desliga telemetria, instalação de apps sugeridos, experimentos do Windows, P2P do Delivery Optimization, ativação por voz e sincronização de configurações na nuvem, além de Win32 Priority e o limite de divisão de serviços. Precisa de administrador.
+- Mod novo "Tarefas em segundo plano": desliga 4 tarefas do Agendador de Tarefas (telemetria de compatibilidade, SQM, scanner de diagnóstico, WinSAT). Precisa de administrador.
+- Mod novo "Energia e disco": desliga hibernação, suspensão seletiva de USB, e garante o TRIM do SSD ligado. Precisa de administrador.
+- 4 mods novos que não precisam de administrador: avisos/sugestões do Windows, rastreamento do Media Player, busca sem sugestão do Bing e busca sem nuvem.
+
+Versión 2.15
+- Mod nuevo "Sistema y privacidad": apaga telemetría, instalación de apps sugeridas, experimentación de Windows, P2P de Delivery Optimization, activación por voz y sincronización de configuración en la nube, además de Win32 Priority y el umbral de división de servicios. Necesita administrador.
+- Mod nuevo "Tareas en segundo plano": apaga 4 tareas del Programador de tareas (telemetría de compatibilidad, SQM, escáner de diagnóstico, WinSAT). Necesita administrador.
+- Mod nuevo "Energía y disco": apaga hibernación, suspensión selectiva de USB, y asegura el TRIM del SSD activado. Necesita administrador.
+- 4 mods nuevos que no necesitan administrador: avisos/sugerencias de Windows, seguimiento de Media Player, búsqueda sin sugerencias de Bing y búsqueda sin nube.
+
 Version 2.14
 - Visual refresh of the Dark theme: deeper near-black background and a punchier electric-blue accent, plus slightly softer button corners. Colors only — no screen, card or menu was moved or resized, so this carries none of the 2.9 risk.
 

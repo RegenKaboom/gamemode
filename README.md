@@ -6,7 +6,7 @@ A Windows app that makes games run smoother and shows useful information on scre
 - **Overlays:** CPU, RAM, ping, keys, CPS, crosshair, a Friday Night Funkin' arrow counter and a Feather/Badlion style "Client" look.
 - **Profiles:** one profile per game (ping server, overlay look, GPU), with automatic switching.
 - **Steam and Epic Games:** Options > *Import from Steam / Epic* finds installed games and adds them as profiles, with the `.exe` path already filled in.
-- **Mods tab:** QoS, Movement Helper, brightness, shaders, Windows game tweaks, hardware-accelerated GPU scheduling (HAGS), background services (SysMain/Superfetch + Windows Search), Windows Game Mode, mouse acceleration off, keyboard without popups, shader cache cleanup, monitor refresh rate and Windows startup programs. Everything that changes Windows keeps a backup and has an Undo button (the shader cache is just rebuilt by the games).
+- **Mods tab:** QoS, Movement Helper, brightness, shaders, Windows game tweaks, hardware-accelerated GPU scheduling (HAGS), background services (SysMain/Superfetch + Windows Search), system & privacy tweaks (telemetry, consumer features, experimentation, Delivery Optimization, voice activation, settings sync, Win32 Priority, service-split threshold), background Task Scheduler tasks, power & disk (hibernation, USB selective suspend, TRIM), Windows Game Mode, mouse acceleration off, keyboard without popups, Windows nudges, Media Player tracking, search suggestions/cloud search, shader cache cleanup, monitor refresh rate and Windows startup programs. Everything that changes Windows keeps a backup and has an Undo button (the shader cache is just rebuilt by the games).
 - **Languages:** English, Portuguese and Spanish (installer and Options > Accessibility).
 - **Look:** rounded cards and buttons, side menu, Ctrl+K search, 11 themes (Dark, Light, Midnight, OLED, Ocean, Forest, Violet, Rose, Amber, Emerald, Sakura) and accent colors, in Options > Appearance.
 - **Tray icon:** next to the clock, with a right-click menu (open, turn on/off, restore, exit). Closing the window can keep the program in the tray.
@@ -66,6 +66,9 @@ small as possible:
 | `tweaks` | the 6 `WIN_TWEAKS` registry values ("Windows para jogos") |
 | `hags` | the single `HwSchedMode` registry value (hardware-accelerated GPU scheduling) |
 | `svc_off` / `svc_on` | stops/starts the two `BG_SERVICES` (SysMain, WSearch) via `sc.exe` |
+| `debloat` | the 10 `DEBLOAT_TWEAKS` registry values (telemetry, consumer features, experimentation, Delivery Optimization, voice activation, settings sync, Win32 Priority, service-split threshold, deferred updates) |
+| `tasks_off` / `tasks_on` | disables/enables the 5 `TASK_PATHS` scheduled tasks via `schtasks.exe` |
+| `power_off` / `power_on` | hibernation, USB selective suspend and TRIM via `powercfg.exe` / `fsutil.exe` |
 
 On first open (if not already elevated) the app offers, once, to always reopen as administrator
 instead — this avoids the repeated per-action prompts, at the cost of a UAC prompt on every launch.

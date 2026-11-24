@@ -956,3 +956,88 @@ def update_action(mode, frozen, version, skip, game_running, manual):
     if mode == "auto":
         return "wait" if game_running else "install"
     return "prompt"
+
+
+# ---- Nudge Blocker: avisos e sugestões do Windows (dicas, "complete sua conta", sugestões na
+# barra de tarefas). Só mexe no usuário (HKCU), não pede administrador.
+NUDGE_ITEMS = [(r"Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager",
+                "SubscribedContent-338389Enabled"),
+               (r"Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager",
+                "SoftLandingEnabled"),
+               (r"Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager",
+                "SystemPaneSuggestionsEnabled")]
+
+
+def nudge_is_off():
+    try:
+        got = reg_read(NUDGE_ITEMS)
+        return all(v is not None and int(v[1]) == 0 for v in got.values())
+    except Exception:
+        return False
+
+
+def nudge_off():
+    before = reg_read(NUDGE_ITEMS)
+    reg_write([(path, name, _HKCU_DWORD, 0) for path, name in NUDGE_ITEMS])
+    return before
+
+
+# ---- Media Player Tracking Off: desliga o uso/estatística do Windows Media Player. HKCU.
+MEDIATRACK_ITEMS = [(r"Software\Microsoft\MediaPlayer\Preferences", "UsageTracking")]
+
+
+def mediatrack_is_off():
+    try:
+        got = reg_read(MEDIATRACK_ITEMS)
+        return all(v is not None and int(v[1]) == 0 for v in got.values())
+    except Exception:
+        return False
+
+
+def mediatrack_off():
+    before = reg_read(MEDIATRACK_ITEMS)
+    reg_write([(path, name, _HKCU_DWORD, 0) for path, name in MEDIATRACK_ITEMS])
+    return before
+
+
+# ---- Search Box Local: desliga sugestão do Bing/Cortana na busca do Windows. HKCU.
+SEARCHLOCAL_ITEMS = [(r"Software\Microsoft\Windows\CurrentVersion\Search", "BingSearchEnabled"),
+                      (r"Software\Microsoft\Windows\CurrentVersion\Search", "CortanaConsent")]
+
+
+def searchlocal_is_off():
+    try:
+        got = reg_read(SEARCHLOCAL_ITEMS)
+        return all(v is not None and int(v[1]) == 0 for v in got.values())
+    except Exception:
+        return False
+
+
+def searchlocal_off():
+    before = reg_read(SEARCHLOCAL_ITEMS)
+    reg_write([(path, name, _HKCU_DWORD, 0) for path, name in SEARCHLOCAL_ITEMS])
+    return before
+
+
+# ---- Search Cloud Off: desliga busca na nuvem (conta Microsoft/trabalho) e histórico de busca do
+# dispositivo na barra de pesquisa. HKCU.
+SEARCHCLOUD_ITEMS = [(r"Software\Microsoft\Windows\CurrentVersion\SearchSettings",
+                       "IsAADCloudSearchEnabled"),
+                      (r"Software\Microsoft\Windows\CurrentVersion\SearchSettings",
+                       "IsMSACloudSearchEnabled"),
+                      (r"Software\Microsoft\Windows\CurrentVersion\SearchSettings",
+                       "IsDeviceSearchHistoryEnabled")]
+
+
+def searchcloud_is_off():
+    try:
+        got = reg_read(SEARCHCLOUD_ITEMS)
+        return all(v is not None and int(v[1]) == 0 for v in got.values())
+    except Exception:
+        return False
+
+
+def searchcloud_off():
+    before = reg_read(SEARCHCLOUD_ITEMS)
+    reg_write([(path, name, _HKCU_DWORD, 0) for path, name in SEARCHCLOUD_ITEMS])
+    return before

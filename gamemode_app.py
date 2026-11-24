@@ -161,7 +161,7 @@ POLL_ACTIVE_SECONDS = 3.0    # jogo aberto (menos trabalho enquanto você joga)
 RETRIM_SECONDS = 60.0
 POLL_IDLE_SLOW_SECONDS = 5.0  # depois de 1 min esperando o jogo, olha menos vezes
 IDLE_SLOW_AFTER = 60.0
-APP_VERSION = "2.14 (visual: dark/blue)"
+APP_VERSION = "2.15 (system/privacy mods)"
 UPDATE_REPO = "RegenKaboom/gamemode"                  # onde as versões novas são publicadas (GitHub Releases)
 UPDATE_MANIFEST_URL = f"https://github.com/{UPDATE_REPO}/releases/latest/download/latest.json"
 UPDATE_PAGE = f"https://github.com/{UPDATE_REPO}/releases/latest"
@@ -179,6 +179,7 @@ DEFAULT_SETTINGS = {
     "win_tweaks": {"backup": None},   # valores de antes dos ajustes de jogo do Windows
     "hags": {"backup": None},         # agendamento de GPU por hardware: valor do registro de antes
     "svc_tweak": {"backup": None},    # SysMain/Pesquisa do Windows: tipo de início de cada um antes
+    "debloat": {"backup": None},      # valores de antes dos ajustes de sistema e privacidade
     "mem_priority": True,    # prioridade de memória baixa nos apps calmos
     "io_priority": True,     # disco com prioridade baixa nos apps calmos
     "limit_cpu": False,      # apps calmos presos a poucos núcleos (PCs com mais de 4)
@@ -205,6 +206,10 @@ DEFAULT_SETTINGS = {
         "kbd": "",               # Teclado sem popups
         "hz": 0,                 # taxa do monitor antes da mudança (0 = não mexeu)
         "startup": [],           # programas de inicialização que o Game Mode desativou
+        "nudge": "",             # avisos e sugestões do Windows
+        "mediatrack": "",        # uso do Windows Media Player
+        "searchlocal": "",       # sugestões do Bing/Cortana na busca
+        "searchcloud": "",       # busca na nuvem (conta Microsoft/trabalho)
     },
     "profiles_v": 0,
     "tray_show": True,       # ícone na bandeja do Windows (perto do relógio)
@@ -314,7 +319,7 @@ _FIRST_RUN = not os.path.isfile(SETTINGS_PATH)   # primeira vez neste PC: não a
 # None, então o _merge_settings (que só aceita um valor salvo se o tipo bater com o padrão) descarta
 # o que foi salvo, qualquer que seja o tipo dele (dicionário, número...). Por isso são tratadas à
 # parte aqui, copiando o valor salvo direto, sem passar pelo _merge_settings.
-_BACKUP_KEYS = ("win_tweaks", "hags", "svc_tweak")
+_BACKUP_KEYS = ("win_tweaks", "hags", "svc_tweak", "debloat")
 
 
 def load_settings():
@@ -2076,8 +2081,10 @@ def win_tweaks_active():
 
 # Tarefas que precisam de administrador: o próprio programa se abre de novo com permissão (o Windows
 # mostra o aviso UAC), faz UMA tarefa fixa e fecha. Nunca usa PowerShell e nunca recebe caminho de
-# fora: cada tarefa só mexe no que já está fixado no código (6 valores de WIN_TWEAKS, 1 valor de
-# HAGS_NAME ou os 2 serviços de BG_SERVICES) — "tweaks", "hags", "svc_off" e "svc_on".
+# fora: cada tarefa só mexe no que já está fixado no código — "tweaks" (6 valores de WIN_TWEAKS),
+# "hags" (1 valor de HAGS_NAME), "svc_off"/"svc_on" (os 2 serviços de BG_SERVICES), "debloat" (os 10
+# valores de DEBLOAT_TWEAKS), "tasks_off"/"tasks_on" (as 5 tarefas de TASK_PATHS, via schtasks.exe) e
+# "power_off"/"power_on" (hibernação, USB e TRIM, via powercfg.exe e fsutil.exe).
 ADMIN_OK, ADMIN_BAD_ARGS, ADMIN_REG_ERROR, ADMIN_SVC_ERROR, ADMIN_DENIED = 0, 2, 3, 4, 5
 ADMIN_TEXT = {ADMIN_BAD_ARGS: tr("pedido inválido"), ADMIN_REG_ERROR: tr("o Windows recusou mexer no registro"),
               ADMIN_SVC_ERROR: tr("o Windows recusou mexer num serviço"), ADMIN_DENIED: tr("acesso negado")}
@@ -2211,6 +2218,16 @@ def admin_job_main(argv):
         return svc_tweak_write(rest, turn_on=False)
     if job == "svc_on":
         return svc_tweak_write(rest, turn_on=True)
+    if job == "debloat":
+        return debloat_write(rest)
+    if job == "tasks_off":
+        return tasks_write(turn_on=False)
+    if job == "tasks_on":
+        return tasks_write(turn_on=True)
+    if job == "power_off":
+        return power_write(turn_on=False)
+    if job == "power_on":
+        return power_write(turn_on=True)
     return ADMIN_BAD_ARGS
 
 
@@ -2423,6 +2440,217 @@ def bg_services_restore(backup):
     if not ok:
         return False, [("warn", tr("Não consegui religar os serviços em segundo plano. ") + text)]
     return True, [("ok", tr("SysMain e Pesquisa do Windows ligados de novo."))]
+
+
+# ---- Sistema e privacidade: um punhado de valores do registro (políticas do Windows), cada um bem
+# documentado e usado por ferramentas de "debloat" conhecidas (ShutUp10, WinUtil etc.). Cada entrada é
+# (caminho completo dentro de HKLM, nome, valor "ligado", tipo). Igual aos outros mods de registro,
+# tudo ou nada: se uma trava no meio, desfaz sozinho as que já tinham mudado.
+DEBLOAT_TWEAKS = [
+    (r"SOFTWARE\Policies\Microsoft\Windows\DataCollection", "AllowTelemetry", 0, "DWord"),
+    (r"SOFTWARE\Policies\Microsoft\Windows\CloudContent", "DisableWindowsConsumerFeatures", 1, "DWord"),
+    (r"SOFTWARE\Microsoft\PolicyManager\current\device\System", "AllowExperimentation", 0, "DWord"),
+    (r"SOFTWARE\Policies\Microsoft\Windows\DeliveryOptimization", "DODownloadMode", 0, "DWord"),
+    (r"SOFTWARE\Policies\Microsoft\Windows\AppPrivacy", "LetAppsActivateWithVoice", 2, "DWord"),
+    (r"SOFTWARE\Policies\Microsoft\Windows\SettingSync", "DisableSettingSync", 2, "DWord"),
+    (r"SOFTWARE\Policies\Microsoft\Windows\SettingSync", "DisableSettingSyncUserOverride", 1, "DWord"),
+    (r"SYSTEM\CurrentControlSet\Control\PriorityControl", "Win32PrioritySeparation", 26, "DWord"),
+    (r"SYSTEM\CurrentControlSet\Control", "SvcHostSplitThresholdInKB", 0x0F000000, "DWord"),
+    (r"SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate", "DeferFeatureUpdatesPeriodInDays", 365, "DWord"),
+]
+
+
+def _debloat_id(path, name):
+    return f"{path}|{name}"
+
+
+def debloat_read():
+    import winreg
+    out = {}
+    for path, name, _v, _k in DEBLOAT_TWEAKS:
+        try:
+            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, path) as key:
+                out[_debloat_id(path, name)] = winreg.QueryValueEx(key, name)[0]
+        except OSError:
+            out[_debloat_id(path, name)] = None
+    return out
+
+
+def debloat_active():
+    try:
+        current = debloat_read()
+        return all(current.get(_debloat_id(path, name)) == val for path, name, val, _k in DEBLOAT_TWEAKS)
+    except Exception:
+        return False
+
+
+def debloat_write(tokens):
+    """Roda no processo elevado. tokens = um por entrada de DEBLOAT_TWEAKS, na mesma ordem."""
+    import winreg
+    if len(tokens) != len(DEBLOAT_TWEAKS):
+        return ADMIN_BAD_ARGS
+    parsed = [parse_tweak_token(t) for t in tokens]
+    if None in parsed:
+        return ADMIN_BAD_ARGS
+    access = winreg.KEY_SET_VALUE | winreg.KEY_WOW64_64KEY
+
+    def write_one(path, name, kind, val):
+        if kind == "d":
+            try:
+                with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, path, 0, access) as key:
+                    winreg.DeleteValue(key, name)
+            except FileNotFoundError:
+                pass
+        else:
+            with winreg.CreateKeyEx(winreg.HKEY_LOCAL_MACHINE, path, 0, access) as key:
+                winreg.SetValueEx(key, name, 0, winreg.REG_DWORD if kind == "i" else winreg.REG_SZ, val)
+
+    def current(path, name):
+        try:
+            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, path) as key:
+                return winreg.QueryValueEx(key, name)[0]
+        except OSError:
+            return None
+
+    changed = []
+    try:
+        for (path, name, _v, _k), (kind, val) in zip(DEBLOAT_TWEAKS, parsed):
+            before = current(path, name)
+            write_one(path, name, kind, val)
+            changed.append((path, name, before))
+    except OSError as exc:
+        for path, name, before in reversed(changed):
+            try:
+                if before is None:
+                    write_one(path, name, "d", None)
+                elif isinstance(before, int):
+                    write_one(path, name, "i", before)
+                else:
+                    write_one(path, name, "s", before)
+            except Exception:
+                pass
+        return ADMIN_DENIED if isinstance(exc, PermissionError) else ADMIN_REG_ERROR
+    return ADMIN_OK
+
+
+def debloat_apply():
+    ok, text = run_admin_job("debloat", [tweak_token(val) for _p, _n, val, _k in DEBLOAT_TWEAKS])
+    if not ok:
+        return False, [("warn", tr("Não consegui aplicar os ajustes de sistema e privacidade. ") + text)]
+    return True, [("ok", tr("Ajustes de sistema e privacidade aplicados."))]
+
+
+def debloat_restore(backup):
+    tokens = [tweak_token((backup or {}).get(_debloat_id(path, name)))
+              for path, name, _v, _k in DEBLOAT_TWEAKS]
+    ok, text = run_admin_job("debloat", tokens)
+    if not ok:
+        return False, [("warn", tr("Não consegui voltar os ajustes de sistema e privacidade. ") + text)]
+    return True, [("ok", tr("Ajustes de sistema e privacidade desfeitos (valores de antes)."))]
+
+
+# ---- Tarefas agendadas de telemetria e manutenção: desliga algumas tarefas do Agendador de Tarefas
+# do próprio Windows que rodam sozinhas em segundo plano. Nomes sempre fixos, nunca vindos de fora.
+# Como todas vêm LIGADAS de fábrica em qualquer Windows, "religar" aqui sempre volta a ligar, sem
+# precisar guardar backup (não existe "estava desligada antes de o programa mexer").
+TASK_PATHS = (
+    r"\Microsoft\Windows\Application Experience\Microsoft Compatibility Appraiser",
+    r"\Microsoft\Windows\Application Experience\ProgramDataUpdater",
+    r"\Microsoft\Windows\Autochk\Proxy",
+    r"\Microsoft\Windows\Diagnosis\Scheduled",
+    r"\Microsoft\Windows\Maintenance\WinSAT",
+)
+
+
+def _schtasks_run(*args, timeout=15):
+    try:
+        r = subprocess.run(["schtasks.exe", *args], capture_output=True, text=True, timeout=timeout,
+                           creationflags=0x08000000)  # CREATE_NO_WINDOW
+        return r.returncode, (r.stdout or "") + (r.stderr or "")
+    except Exception as exc:
+        return 1, str(exc)
+
+
+def tasks_write(turn_on):
+    """Roda no processo elevado. Liga ou desliga as 5 tarefas de TASK_PATHS. Uma tarefa que não existir
+    nessa versão do Windows é só pulada (schtasks devolve erro, mas não tratamos como falha)."""
+    had_error = False
+    for path in TASK_PATHS:
+        code, _out = _schtasks_run("/Change", "/TN", path, "/Enable" if turn_on else "/Disable")
+        if code != 0:
+            had_error = True   # pode ser uma tarefa que não existe nessa edição/idioma do Windows
+    return ADMIN_SVC_ERROR if had_error else ADMIN_OK
+
+
+def tasks_apply():
+    ok, text = run_admin_job("tasks_off", [])
+    if not ok:
+        return False, [("warn", tr("Não consegui desativar as tarefas em segundo plano. ") + text)]
+    return True, [("ok", tr("Tarefas de telemetria e manutenção desativadas."))]
+
+
+def tasks_restore():
+    ok, text = run_admin_job("tasks_on", [])
+    if not ok:
+        return False, [("warn", tr("Não consegui reativar as tarefas em segundo plano. ") + text)]
+    return True, [("ok", tr("Tarefas de telemetria e manutenção reativadas (como o Windows já vem de fábrica)."))]
+
+
+# ---- Energia e disco: desliga hibernação (e com ela a Inicialização Rápida, que depende do arquivo
+# de hibernação), desliga a suspensão seletiva de USB (evita microtravadas de mouse/teclado/áudio) e
+# garante o TRIM do SSD ligado. Comandos fixos do próprio Windows (powercfg.exe e fsutil.exe), nunca
+# PowerShell.
+_USB_SUBGROUP = "2a737441-1930-4402-8d77-b2bebba308a3"
+_USB_SETTING = "48e6b7a6-50f5-4782-a5d4-53bb8f07e226"
+
+
+def _powercfg_run(*args, timeout=20):
+    try:
+        r = subprocess.run(["powercfg.exe", *args], capture_output=True, text=True, timeout=timeout,
+                           creationflags=0x08000000)
+        return r.returncode, (r.stdout or "") + (r.stderr or "")
+    except Exception as exc:
+        return 1, str(exc)
+
+
+def _fsutil_run(*args, timeout=15):
+    try:
+        r = subprocess.run(["fsutil.exe", *args], capture_output=True, text=True, timeout=timeout,
+                           creationflags=0x08000000)
+        return r.returncode, (r.stdout or "") + (r.stderr or "")
+    except Exception as exc:
+        return 1, str(exc)
+
+
+def power_write(turn_on):
+    """Roda no processo elevado."""
+    had_error = False
+    if turn_on:
+        code, _ = _powercfg_run("/hibernate", "on")
+        had_error = had_error or code != 0
+        _powercfg_run("/setacvalueindex", "SCHEME_CURRENT", _USB_SUBGROUP, _USB_SETTING, "1")
+        _powercfg_run("/setactive", "SCHEME_CURRENT")
+    else:
+        code, _ = _powercfg_run("/hibernate", "off")
+        had_error = had_error or code != 0
+        _powercfg_run("/setacvalueindex", "SCHEME_CURRENT", _USB_SUBGROUP, _USB_SETTING, "0")
+        _powercfg_run("/setactive", "SCHEME_CURRENT")
+        _fsutil_run("behavior", "set", "disabledeletenotify", "0")   # garante o TRIM ligado
+    return ADMIN_SVC_ERROR if had_error else ADMIN_OK
+
+
+def power_apply():
+    ok, text = run_admin_job("power_off", [])
+    if not ok:
+        return False, [("warn", tr("Não consegui aplicar os ajustes de energia e disco. ") + text)]
+    return True, [("ok", tr("Hibernação desligada, USB sem suspensão seletiva e TRIM garantido ligado."))]
+
+
+def power_restore():
+    ok, text = run_admin_job("power_on", [])
+    if not ok:
+        return False, [("warn", tr("Não consegui desfazer os ajustes de energia e disco. ") + text)]
+    return True, [("ok", tr("Hibernação ligada de novo e USB voltou ao padrão do Windows."))]
 
 
 BRIGHT_KEYS = [("none", tr("Nenhuma"), 0), ("f9", "F9", 0x78), ("f10", "F10", 0x79),
@@ -4422,7 +4650,14 @@ class App:
             self._build_wintweaks_card(inner)
             self._build_hags_card(inner)
             self._build_bgsvc_card(inner)
+            self._build_debloat_card(inner)
+            self._build_tasks_card(inner)
+            self._build_power_card(inner)
             if gm_extras is not None:
+                self._build_nudge_card(inner)
+                self._build_mediatrack_card(inner)
+                self._build_searchlocal_card(inner)
+                self._build_searchcloud_card(inner)
                 self._build_extra_cards(inner)
             self._mods_ok = True
             return
@@ -4686,6 +4921,9 @@ class App:
         if hasattr(self, "bgsvc_badge"):
             on = bg_services_active()
             self._cfg(self.bgsvc_badge, text=tr("PARADOS") if on else tr("LIGADOS"), fg=GREEN if on else MUTED)
+        if hasattr(self, "debloat_badge"):
+            on = debloat_active()
+            self._cfg(self.debloat_badge, text=tr("ATIVO") if on else tr("INATIVO"), fg=GREEN if on else MUTED)
         q = qos_status()
         if q.get("active"):
             self._cfg(self.qos_badge, text=tr('ATIVO · DSCP {}').format(q.get('dscp')), fg=GREEN)
@@ -6417,6 +6655,140 @@ class App:
             self._show_result(self.bgsvc_status, result, self.bgsvc_buttons, self.refresh_mod_badges)
 
         self._run_bg(lambda: bg_services_restore(backup), done)
+
+    def _build_debloat_card(self, parent):
+        body, self.debloat_badge, self.debloat_status, gear = self._mod_card(
+            parent, 12, 0, tr("Sistema e privacidade"),
+            tr("Um pacote de ajustes do Windows: desliga telemetria, instalação de apps sugeridos, "
+            "experimentos do Windows, download P2P do Delivery Optimization, ativação por voz e "
+            "sincronização de configurações na nuvem; ajusta a prioridade de processos (Win32 "
+            "Priority) e o limite de divisão de serviços; adia atualizações de recurso do Windows. "
+            "Pede administrador."), WARN, span=2)
+        buttons = tk.Frame(body, bg=CARD)
+        buttons.pack(anchor="w")
+        self.debloat_buttons = [self._btn(buttons, tr("Aplicar"), self.debloat_apply_click, True),
+                                 self._btn(buttons, tr("Desfazer"), self.debloat_restore_click)]
+        self.debloat_buttons[0].pack(side="left")
+        self.debloat_buttons[1].pack(side="left", padx=8)
+        tk.Label(gear, text="\n".join(f"• {name}" for _p, name, _v, _k in DEBLOAT_TWEAKS),
+                 bg=CARD, fg=MUTED, font=(FONT, 9), justify="left").grid(row=0, column=0, sticky="w")
+
+    def debloat_apply_click(self):
+        self._busy(self.debloat_buttons, True)
+        self._status(self.debloat_status, "info", tr("Aguardando a permissão de administrador do Windows..."))
+        dt = self.settings["debloat"]
+        if dt.get("backup") is None and not debloat_active():
+            try:
+                dt["backup"] = debloat_read()
+                save_settings(self.settings)
+            except Exception:
+                dt["backup"] = None
+        self._run_bg(debloat_apply, lambda result: self._show_result(
+            self.debloat_status, result, self.debloat_buttons, self.refresh_mod_badges))
+
+    def debloat_restore_click(self):
+        self._busy(self.debloat_buttons, True)
+        self._status(self.debloat_status, "info", tr("Aguardando a permissão de administrador do Windows..."))
+        backup = self.settings["debloat"].get("backup")
+
+        def done(result):
+            if result[0]:
+                self.settings["debloat"]["backup"] = None
+                save_settings(self.settings)
+            self._show_result(self.debloat_status, result, self.debloat_buttons, self.refresh_mod_badges)
+
+        self._run_bg(lambda: debloat_restore(backup), done)
+
+    def _build_tasks_card(self, parent):
+        body, _badge, self.tasks_status, gear = self._mod_card(
+            parent, 13, 0, tr("Tarefas em segundo plano"),
+            tr("Desliga tarefas do Agendador de Tarefas do Windows que rodam sozinhas: telemetria de "
+            "compatibilidade de apps, coleta de métricas (SQM), o scanner de diagnóstico recomendado "
+            "e o benchmark do WinSAT. Pede administrador."), TEAL)
+        buttons = tk.Frame(body, bg=CARD)
+        buttons.pack(anchor="w")
+        self.tasks_buttons = [self._btn(buttons, tr("Desativar"), self.tasks_apply_click, True),
+                               self._btn(buttons, tr("Reativar"), self.tasks_restore_click)]
+        self.tasks_buttons[0].pack(side="left")
+        self.tasks_buttons[1].pack(side="left", padx=8)
+        tk.Label(gear, text="\n".join("• " + p.rsplit("\\", 1)[-1] for p in TASK_PATHS),
+                 bg=CARD, fg=MUTED, font=(FONT, 9), justify="left").grid(row=0, column=0, sticky="w")
+
+    def tasks_apply_click(self):
+        self._busy(self.tasks_buttons, True)
+        self._status(self.tasks_status, "info", tr("Aguardando a permissão de administrador do Windows..."))
+        self._run_bg(tasks_apply, lambda result: self._show_result(self.tasks_status, result, self.tasks_buttons))
+
+    def tasks_restore_click(self):
+        self._busy(self.tasks_buttons, True)
+        self._status(self.tasks_status, "info", tr("Aguardando a permissão de administrador do Windows..."))
+        self._run_bg(tasks_restore, lambda result: self._show_result(self.tasks_status, result, self.tasks_buttons))
+
+    def _build_power_card(self, parent):
+        body, _badge, self.power_status, gear = self._mod_card(
+            parent, 13, 1, tr("Energia e disco"),
+            tr("Desliga a hibernação (e junto a Inicialização Rápida, que depende dela), desliga a "
+            "suspensão seletiva de USB (evita microtravadas de mouse/teclado/áudio) e garante o TRIM "
+            "do SSD ligado. Pede administrador."), PINK)
+        buttons = tk.Frame(body, bg=CARD)
+        buttons.pack(anchor="w")
+        self.power_buttons = [self._btn(buttons, tr("Aplicar"), self.power_apply_click, True),
+                               self._btn(buttons, tr("Desfazer"), self.power_restore_click)]
+        self.power_buttons[0].pack(side="left")
+        self.power_buttons[1].pack(side="left", padx=8)
+        tk.Label(gear, text=tr("Hibernação, USB e TRIM"), bg=CARD, fg=MUTED,
+                 font=(FONT, 9), justify="left").grid(row=0, column=0, sticky="w")
+
+    def power_apply_click(self):
+        self._busy(self.power_buttons, True)
+        self._status(self.power_status, "info", tr("Aguardando a permissão de administrador do Windows..."))
+        self._run_bg(power_apply, lambda result: self._show_result(self.power_status, result, self.power_buttons))
+
+    def power_restore_click(self):
+        self._busy(self.power_buttons, True)
+        self._status(self.power_status, "info", tr("Aguardando a permissão de administrador do Windows..."))
+        self._run_bg(power_restore, lambda result: self._show_result(self.power_status, result, self.power_buttons))
+
+    def _build_nudge_card(self, parent):
+        self._reg_mod(
+            parent, 14, 0, "nudge", tr("Avisos e sugestões do Windows"),
+            tr("Desliga dicas, sugestões na barra de tarefas e o pedido para \"completar a conta\". "
+               "Só mexe nas configurações do seu usuário e dá para desfazer."),
+            WARN, tr("Desligar"), gm_extras.nudge_is_off, gm_extras.nudge_off,
+            (lambda before: gm_extras.reg_restore(gm_extras.NUDGE_ITEMS, before)),
+            tr("Avisos do Windows: desligados."), tr("Avisos do Windows: como o Windows deixou."),
+            tr("Avisos do Windows desligados."), tr("Avisos do Windows: voltou ao que estava."))
+
+    def _build_mediatrack_card(self, parent):
+        self._reg_mod(
+            parent, 14, 1, "mediatrack", tr("Uso do Windows Media Player"),
+            tr("Desliga o rastreamento de uso do Windows Media Player. Só mexe nas configurações do "
+               "seu usuário e dá para desfazer."),
+            TEAL, tr("Desligar"), gm_extras.mediatrack_is_off, gm_extras.mediatrack_off,
+            (lambda before: gm_extras.reg_restore(gm_extras.MEDIATRACK_ITEMS, before)),
+            tr("Uso do Media Player: não rastreado."), tr("Uso do Media Player: como o Windows deixou."),
+            tr("Rastreamento do Media Player desligado."), tr("Media Player: voltou ao que estava."))
+
+    def _build_searchlocal_card(self, parent):
+        self._reg_mod(
+            parent, 15, 0, "searchlocal", tr("Busca sem sugestão do Bing"),
+            tr("Desliga a sugestão do Bing e da Cortana na busca do Windows. Só mexe nas configurações "
+               "do seu usuário e dá para desfazer."),
+            ACCENT, tr("Desligar"), gm_extras.searchlocal_is_off, gm_extras.searchlocal_off,
+            (lambda before: gm_extras.reg_restore(gm_extras.SEARCHLOCAL_ITEMS, before)),
+            tr("Busca do Windows: sem sugestão do Bing."), tr("Busca do Windows: como o Windows deixou."),
+            tr("Sugestão do Bing na busca desligada."), tr("Busca do Windows: voltou ao que estava."))
+
+    def _build_searchcloud_card(self, parent):
+        self._reg_mod(
+            parent, 15, 1, "searchcloud", tr("Busca sem nuvem"),
+            tr("Desliga a busca na nuvem (conta Microsoft/trabalho) e o histórico de busca do "
+               "dispositivo na barra de pesquisa. Só mexe nas configurações do seu usuário e dá para "
+               "desfazer."),
+            GREEN, tr("Desligar"), gm_extras.searchcloud_is_off, gm_extras.searchcloud_off,
+            (lambda before: gm_extras.reg_restore(gm_extras.SEARCHCLOUD_ITEMS, before)),
+            tr("Busca na nuvem: desligada."), tr("Busca na nuvem: como o Windows deixou."),
+            tr("Busca na nuvem desligada."), tr("Busca na nuvem: voltou ao que estava."))
 
     # ---- overlays (HUD) ----------------------------------------------------
 

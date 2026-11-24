@@ -3,6 +3,134 @@
 
 TABLE = {
     'Ligar': ('Turn on', 'Activar'),
+    'Desativar': ('Turn off', 'Desactivar'),
+    'Desligar': ('Turn off', 'Desactivar'),
+    'Reativar': ('Turn back on', 'Reactivar'),
+    'Sistema e privacidade': ('System and privacy', 'Sistema y privacidad'),
+    'Um pacote de ajustes do Windows: desliga telemetria, instalação de apps sugeridos, '
+    'experimentos do Windows, download P2P do Delivery Optimization, ativação por voz e '
+    'sincronização de configurações na nuvem; ajusta a prioridade de processos (Win32 '
+    'Priority) e o limite de divisão de serviços; adia atualizações de recurso do Windows. '
+    'Pede administrador.': (
+        'A bundle of Windows tweaks: turns off telemetry, suggested-app installs, Windows '
+        'experimentation, Delivery Optimization P2P downloads, voice activation and settings sync '
+        'to the cloud; adjusts process priority (Win32 Priority) and the service-splitting '
+        'threshold; defers Windows feature updates. Asks for administrator permission.',
+        'Un paquete de ajustes de Windows: apaga telemetría, instalación de apps sugeridas, '
+        'experimentación de Windows, descargas P2P de Delivery Optimization, activación por voz y '
+        'sincronización de configuración en la nube; ajusta la prioridad de procesos (Win32 '
+        'Priority) y el umbral de división de servicios; difiere actualizaciones de funciones de '
+        'Windows. Pide permiso de administrador.'),
+    'Não consegui aplicar os ajustes de sistema e privacidade. ': (
+        'Could not apply the system and privacy tweaks. ',
+        'No se pudieron aplicar los ajustes de sistema y privacidad. '),
+    'Ajustes de sistema e privacidade aplicados.': (
+        'System and privacy tweaks applied.', 'Ajustes de sistema y privacidad aplicados.'),
+    'Não consegui voltar os ajustes de sistema e privacidade. ': (
+        'Could not undo the system and privacy tweaks. ',
+        'No se pudieron deshacer los ajustes de sistema y privacidad. '),
+    'Ajustes de sistema e privacidade desfeitos (valores de antes).': (
+        'System and privacy tweaks undone (previous values).',
+        'Ajustes de sistema y privacidad deshechos (valores anteriores).'),
+    'Tarefas em segundo plano': ('Background tasks', 'Tareas en segundo plano'),
+    'Desliga tarefas do Agendador de Tarefas do Windows que rodam sozinhas: telemetria de '
+    'compatibilidade de apps, coleta de métricas (SQM), o scanner de diagnóstico recomendado '
+    'e o benchmark do WinSAT. Pede administrador.': (
+        'Turns off Windows Task Scheduler tasks that run on their own: app-compatibility '
+        'telemetry, metrics collection (SQM), the recommended diagnostics scanner and the WinSAT '
+        'benchmark. Asks for administrator permission.',
+        'Apaga tareas del Programador de tareas de Windows que se ejecutan solas: telemetría de '
+        'compatibilidad de apps, recolección de métricas (SQM), el escáner de diagnóstico '
+        'recomendado y el benchmark de WinSAT. Pide permiso de administrador.'),
+    'Não consegui desativar as tarefas em segundo plano. ': (
+        'Could not turn off the background tasks. ', 'No se pudieron desactivar las tareas en segundo plano. '),
+    'Tarefas de telemetria e manutenção desativadas.': (
+        'Telemetry and maintenance tasks turned off.', 'Tareas de telemetría y mantenimiento desactivadas.'),
+    'Não consegui reativar as tarefas em segundo plano. ': (
+        'Could not turn the background tasks back on. ',
+        'No se pudieron reactivar las tareas en segundo plano. '),
+    'Tarefas de telemetria e manutenção reativadas (como o Windows já vem de fábrica).': (
+        'Telemetry and maintenance tasks turned back on (as Windows ships by default).',
+        'Tareas de telemetría y mantenimiento reactivadas (como viene Windows de fábrica).'),
+    'Energia e disco': ('Power and disk', 'Energía y disco'),
+    'Desliga a hibernação (e junto a Inicialização Rápida, que depende dela), desliga a '
+    'suspensão seletiva de USB (evita microtravadas de mouse/teclado/áudio) e garante o TRIM '
+    'do SSD ligado. Pede administrador.': (
+        'Turns off hibernation (and with it Fast Startup, which depends on it), turns off USB '
+        'selective suspend (avoids mouse/keyboard/audio micro-stutters) and makes sure SSD TRIM is '
+        'on. Asks for administrator permission.',
+        'Apaga la hibernación (y con ella el Inicio rápido, que depende de ella), apaga la '
+        'suspensión selectiva de USB (evita microcortes de mouse/teclado/audio) y asegura que el '
+        'TRIM del SSD esté activado. Pide permiso de administrador.'),
+    'Hibernação, USB e TRIM': ('Hibernation, USB and TRIM', 'Hibernación, USB y TRIM'),
+    'Não consegui aplicar os ajustes de energia e disco. ': (
+        'Could not apply the power and disk tweaks. ', 'No se pudieron aplicar los ajustes de energía y disco. '),
+    'Hibernação desligada, USB sem suspensão seletiva e TRIM garantido ligado.': (
+        'Hibernation off, USB without selective suspend, and TRIM guaranteed on.',
+        'Hibernación apagada, USB sin suspensión selectiva y TRIM garantizado activado.'),
+    'Não consegui desfazer os ajustes de energia e disco. ': (
+        'Could not undo the power and disk tweaks. ', 'No se pudieron deshacer los ajustes de energía y disco. '),
+    'Hibernação ligada de novo e USB voltou ao padrão do Windows.': (
+        'Hibernation turned back on and USB back to the Windows default.',
+        'Hibernación reactivada y USB volvió al valor predeterminado de Windows.'),
+    'Avisos e sugestões do Windows': ('Windows nudges and suggestions', 'Avisos y sugerencias de Windows'),
+    'Desliga dicas, sugestões na barra de tarefas e o pedido para "completar a conta". '
+    'Só mexe nas configurações do seu usuário e dá para desfazer.': (
+        'Turns off tips, taskbar suggestions and the "finish setting up your account" nudge. Only '
+        'touches your own user settings and can be undone.',
+        'Apaga consejos, sugerencias en la barra de tareas y el aviso para "completar la cuenta". '
+        'Solo toca la configuración de tu usuario y se puede deshacer.'),
+    'Avisos do Windows: desligados.': ('Windows nudges: off.', 'Avisos de Windows: apagados.'),
+    'Avisos do Windows: como o Windows deixou.': (
+        'Windows nudges: as Windows left them.', 'Avisos de Windows: como los dejó Windows.'),
+    'Avisos do Windows desligados.': ('Windows nudges turned off.', 'Avisos de Windows apagados.'),
+    'Avisos do Windows: voltou ao que estava.': (
+        'Windows nudges: back to how they were.', 'Avisos de Windows: volvió a como estaba.'),
+    'Uso do Windows Media Player': ('Windows Media Player usage', 'Uso de Windows Media Player'),
+    'Desliga o rastreamento de uso do Windows Media Player. Só mexe nas configurações do '
+    'seu usuário e dá para desfazer.': (
+        'Turns off Windows Media Player usage tracking. Only touches your own user settings and '
+        'can be undone.',
+        'Apaga el seguimiento de uso de Windows Media Player. Solo toca la configuración de tu '
+        'usuario y se puede deshacer.'),
+    'Uso do Media Player: não rastreado.': (
+        'Media Player usage: not tracked.', 'Uso de Media Player: sin seguimiento.'),
+    'Uso do Media Player: como o Windows deixou.': (
+        'Media Player usage: as Windows left it.', 'Uso de Media Player: como lo dejó Windows.'),
+    'Rastreamento do Media Player desligado.': (
+        'Media Player tracking turned off.', 'Seguimiento de Media Player apagado.'),
+    'Media Player: voltou ao que estava.': (
+        'Media Player: back to how it was.', 'Media Player: volvió a como estaba.'),
+    'Busca sem sugestão do Bing': ('Search without Bing suggestions', 'Búsqueda sin sugerencias de Bing'),
+    'Desliga a sugestão do Bing e da Cortana na busca do Windows. Só mexe nas configurações '
+    'do seu usuário e dá para desfazer.': (
+        'Turns off Bing and Cortana suggestions in Windows search. Only touches your own user '
+        'settings and can be undone.',
+        'Apaga las sugerencias de Bing y Cortana en la búsqueda de Windows. Solo toca la '
+        'configuración de tu usuario y se puede deshacer.'),
+    'Busca do Windows: sem sugestão do Bing.': (
+        'Windows search: no Bing suggestions.', 'Búsqueda de Windows: sin sugerencias de Bing.'),
+    'Busca do Windows: como o Windows deixou.': (
+        'Windows search: as Windows left it.', 'Búsqueda de Windows: como la dejó Windows.'),
+    'Sugestão do Bing na busca desligada.': (
+        'Bing search suggestions turned off.', 'Sugerencias de Bing en la búsqueda apagadas.'),
+    'Busca do Windows: voltou ao que estava.': (
+        'Windows search: back to how it was.', 'Búsqueda de Windows: volvió a como estaba.'),
+    'Busca sem nuvem': ('Search without cloud', 'Búsqueda sin nube'),
+    'Desliga a busca na nuvem (conta Microsoft/trabalho) e o histórico de busca do '
+    'dispositivo na barra de pesquisa. Só mexe nas configurações do seu usuário e dá para '
+    'desfazer.': (
+        'Turns off cloud search (Microsoft/work account) and device search history in the search '
+        'bar. Only touches your own user settings and can be undone.',
+        'Apaga la búsqueda en la nube (cuenta de Microsoft/trabajo) y el historial de búsqueda del '
+        'dispositivo en la barra de búsqueda. Solo toca la configuración de tu usuario y se puede '
+        'deshacer.'),
+    'Busca na nuvem: desligada.': ('Cloud search: off.', 'Búsqueda en la nube: apagada.'),
+    'Busca na nuvem: como o Windows deixou.': (
+        'Cloud search: as Windows left it.', 'Búsqueda en la nube: como la dejó Windows.'),
+    'Busca na nuvem desligada.': ('Cloud search turned off.', 'Búsqueda en la nube apagada.'),
+    'Busca na nuvem: voltou ao que estava.': (
+        'Cloud search: back to how it was.', 'Búsqueda en la nube: volvió a como estaba.'),
     'Parar': ('Stop', 'Detener'),
     'Religar': ('Turn back on', 'Reactivar'),
     'PARADOS': ('STOPPED', 'DETENIDOS'),
